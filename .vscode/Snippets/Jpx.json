@@ -1,0 +1,29 @@
+{
+  "Print": {
+    "prefix": "print",
+    "body": [
+      "Print \"${1:text}\";"
+    ],
+    "description": "Print statement"
+  },
+
+  "Global": {
+    "prefix": "global",
+    "body": [
+      "Global [${1:name} = \"${2:value}\"];"
+    ],
+    "description": "Create global variable"
+  },
+
+  "Try Catch": {
+    "prefix": "try",
+    "body": [
+      "try {",
+      "    ${1:// code}",
+      "} Catch (e) {",
+      "    Print \"Error\";",
+      "}"
+    ],
+    "description": "Try Catch block"
+  }
+}
