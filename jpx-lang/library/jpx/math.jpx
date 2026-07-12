@@ -1,0 +1,155 @@
+# jpx/math.jpx - Math utilities (self-hosted)
+#
+# Usage:
+#   [jpx.math];
+#   print math.fib(10);
+#   print math.isPrime(17);
+
+function fib(n) {
+    if n <= 0 { return 0; }
+    if n == 1 { return 1; }
+    global [a = 0];
+    global [b = 1];
+    global [i = 2];
+    while i <= n {
+        global [c = a + b];
+        a = b;
+        b = c;
+        i = i + 1;
+    }
+    return b;
+}
+
+function factorial(n) {
+    if n <= 1 { return 1; }
+    global [result = 1];
+    global [i = 2];
+    while i <= n {
+        result = result * i;
+        i = i + 1;
+    }
+    return result;
+}
+
+function isPrime(n) {
+    if n < 2 { return false; }
+    if n == 2 { return true; }
+    if n % 2 == 0 { return false; }
+    global [i = 3];
+    while i * i <= n {
+        if n % i == 0 { return false; }
+        i = i + 2;
+    }
+    return true;
+}
+
+function gcd(a, b) {
+    while b != 0 {
+        global [t = b];
+        b = a % b;
+        a = t;
+    }
+    return a;
+}
+
+function lcm(a, b) {
+    if a == 0 { return 0; }
+    if b == 0 { return 0; }
+    return (a * b) / gcd(a, b);
+}
+
+function power(base, exp) {
+    if exp == 0 { return 1; }
+    if exp < 0 { return 1 / power(base, 0 - exp); }
+    global [result = 1];
+    global [i = 0];
+    while i < exp {
+        result = result * base;
+        i = i + 1;
+    }
+    return result;
+}
+
+function isqrt(n) {
+    if n < 0 { return 0; }
+    if n == 0 { return 0; }
+    global [x = n];
+    global [y = int((x + 1) / 2)];
+    while y < x {
+        x = y;
+        y = int((x + n / x) / 2);
+    }
+    return x;
+}
+
+function mean(arr) {
+    if arr is null { return 0; }
+    if len(arr) == 0 { return 0; }
+    global [total = 0];
+    global [i = 0];
+    while i < len(arr) {
+        total = total + arr[i];
+        i = i + 1;
+    }
+    return total / len(arr);
+}
+
+function max(arr) {
+    if arr is null { return null; }
+    if len(arr) == 0 { return null; }
+    global [m = arr[0]];
+    global [i = 1];
+    while i < len(arr) {
+        if arr[i] > m {
+            m = arr[i];
+        }
+        i = i + 1;
+    }
+    return m;
+}
+
+function min(arr) {
+    if arr is null { return null; }
+    if len(arr) == 0 { return null; }
+    global [m = arr[0]];
+    global [i = 1];
+    while i < len(arr) {
+        if arr[i] < m {
+            m = arr[i];
+        }
+        i = i + 1;
+    }
+    return m;
+}
+
+function sum(arr) {
+    if arr is null { return 0; }
+    global [total = 0];
+    global [i = 0];
+    while i < len(arr) {
+        total = total + arr[i];
+        i = i + 1;
+    }
+    return total;
+}
+
+function abs(n) {
+    if n < 0 { return 0 - n; }
+    return n;
+}
+
+function clamp(n, lo, hi) {
+    if n < lo { return lo; }
+    if n > hi { return hi; }
+    return n;
+}
+
+function range(start, end) {
+    global [result = []];
+    global [i = start];
+    while i <= end {
+        result = result + [i];
+        i = i + 1;
+    }
+    return result;
+}

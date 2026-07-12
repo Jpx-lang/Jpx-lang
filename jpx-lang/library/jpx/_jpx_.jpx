@@ -1,0 +1,18 @@
+# jpx/_jpx_.jpx - Package init for jpx/ standard library
+#
+# Package ini berisi modul-modul standar JPX yang ditulis dalam JPX sendiri.
+#
+# Usage:
+#   [jpx.string];     # import jpx/string.jpx
+#   [jpx.math];       # import jpx/math.jpx
+#   [jpx.functional]; # import jpx/functional.jpx
+#
+# Atau import seluruh package:
+#   [jpx];            # load _jpx_.jpx (this file)
+
+global [VERSION = "1.0"];
+global [NAME = "JPX Standard Library"];
+
+function info() {
+    return NAME + " v" + VERSION;
+}

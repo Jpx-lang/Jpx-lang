@@ -1,0 +1,327 @@
+# lexer.jpx - JPX Lexer (self-hosted!)
+#
+# Mengubah source code string menjadi list of Token.
+# Token format: [TYPE, VALUE, LINE, COL]
+#
+# Cara pakai:
+#   [tokens];
+#   [lexer];
+#   global [toks = lexer.tokenize("print 1 + 2;")];
+#   lexer.printTokens(toks);
+
+[tokens];
+
+# ============================================================
+# LEXER CLASS
+# ============================================================
+
+class Lexer {
+    __init__(self, source) {
+        if len(source) > 0 {
+            global [first = ord(source[0])];
+            if first == 65279 {
+                self.source = source[1:];
+            } else {
+                self.source = source;
+            }
+        } else {
+            self.source = source;
+        }
+        self.pos = 0;
+        self.line = 1;
+        self.col = 1;
+        self.tokens = [];
+    }
+
+    peek(self, offset) {
+        global [p = self.pos + offset];
+        if p < len(self.source) {
+            return self.source[p];
+        }
+        return "\0";
+    }
+
+    advance(self) {
+        global [ch = self.source[self.pos]];
+        self.pos = self.pos + 1;
+        if ch == "\n" {
+            self.line = self.line + 1;
+            self.col = 1;
+        } else {
+            self.col = self.col + 1;
+        }
+        return ch;
+    }
+
+    atEnd(self) {
+        return self.pos >= len(self.source);
+    }
+
+    tokenize(self) {
+        while not self.atEnd() {
+            global [ch = self.peek(0)];
+
+            if tokens.isSpace(ch) {
+                self.advance();
+            } elif ch == "\n" {
+                self.tokens = self.tokens + [tokens.makeToken("NEWLINE", "\\n", self.line, self.col)];
+                self.advance();
+            } elif ch == "#" {
+                self.skipLineComment();
+            } elif ch == "\"" {
+                self.readString("\"");
+            } elif ch == "'" {
+                self.readString("'");
+            } elif tokens.isDigit(ch) {
+                self.readNumber();
+            } elif tokens.isAlpha(ch) {
+                self.readIdentifier();
+            } elif self.tryOperator() {
+                # consumed dalam tryOperator
+            } elif tokens.isPunctChar(ch) {
+                self.tokens = self.tokens + [tokens.makeToken("PUNCT", ch, self.line, self.col)];
+                self.advance();
+            } else {
+                print "Warning: unknown char '" + ch + "' at line " + self.line;
+                self.advance();
+            }
+        }
+
+        self.tokens = self.tokens + [tokens.makeToken("EOF", "", self.line, self.col)];
+        return self.tokens;
+    }
+
+    skipLineComment(self) {
+        while not self.atEnd() {
+            global [ch = self.peek(0)];
+            if ch == "\n" {
+                break;
+            }
+            self.advance();
+        }
+    }
+
+    readString(self, quote) {
+        global [startLine = self.line];
+        global [startCol = self.col];
+        self.advance();
+
+        global [chars = []];
+        global [done = false];
+
+        while not self.atEnd() {
+            global [ch = self.peek(0)];
+            if ch == quote {
+                self.advance();
+                done = true;
+                break;
+            } elif ch == "\n" {
+                print "Lex error: unterminated string at line " + startLine;
+                return;
+            } elif ch == "\\" {
+                self.advance();
+                global [esc = self.peek(0)];
+                global [mapped = esc];
+                if esc == "n" { mapped = "\n"; } elif esc == "t" { mapped = "\t"; } elif esc == "r" { mapped = "\r"; } elif esc == "\\" { mapped = "\\"; } elif esc == "\"" { mapped = "\""; } elif esc == "'" { mapped = "'"; } elif esc == "0" { mapped = "\0"; } elif esc == "b" { mapped = "\b"; } elif esc == "f" { mapped = "\f"; }
+                chars = chars + [mapped];
+                self.advance();
+            } else {
+                chars = chars + [ch];
+                self.advance();
+            }
+        }
+
+        if not done {
+            print "Lex error: unterminated string at line " + startLine;
+            return;
+        }
+
+        global [value = ""];
+        global [i = 0];
+        while i < len(chars) {
+            value = value + chars[i];
+            i = i + 1;
+        }
+        self.tokens = self.tokens + [tokens.makeToken("STRING", value, startLine, startCol)];
+    }
+
+    readNumber(self) {
+        global [startLine = self.line];
+        global [startCol = self.col];
+        global [chars = []];
+        global [isFloat = false];
+
+        while not self.atEnd() {
+            global [ch = self.peek(0)];
+            if tokens.isDigit(ch) {
+                chars = chars + [ch];
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        if not self.atEnd() {
+            global [ch = self.peek(0)];
+            if ch == "." {
+                global [next = self.peek(1)];
+                if tokens.isDigit(next) {
+                    isFloat = true;
+                    chars = chars + ["."];
+                    self.advance();
+                    while not self.atEnd() {
+                        global [c2 = self.peek(0)];
+                        if tokens.isDigit(c2) {
+                            chars = chars + [c2];
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if not self.atEnd() {
+            global [ch = self.peek(0)];
+            if ch == "e" or ch == "E" {
+                global [next = self.peek(1)];
+                if tokens.isDigit(next) or next == "+" or next == "-" {
+                    isFloat = true;
+                    chars = chars + [ch];
+                    self.advance();
+                    if not self.atEnd() {
+                        global [sign = self.peek(0)];
+                        if sign == "+" or sign == "-" {
+                            chars = chars + [sign];
+                            self.advance();
+                        }
+                    }
+                    while not self.atEnd() {
+                        global [c2 = self.peek(0)];
+                        if tokens.isDigit(c2) {
+                            chars = chars + [c2];
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        global [value = ""];
+        global [i = 0];
+        while i < len(chars) {
+            value = value + chars[i];
+            i = i + 1;
+        }
+        self.tokens = self.tokens + [tokens.makeToken("NUMBER", value, startLine, startCol)];
+    }
+
+    readIdentifier(self) {
+        global [startLine = self.line];
+        global [startCol = self.col];
+        global [chars = []];
+
+        while not self.atEnd() {
+            global [ch = self.peek(0)];
+            if tokens.isAlphaNum(ch) {
+                chars = chars + [ch];
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        global [word = ""];
+        global [i = 0];
+        while i < len(chars) {
+            word = word + chars[i];
+            i = i + 1;
+        }
+
+        global [type = "IDENT"];
+        if tokens.isKeyword(word) {
+            type = "KEYWORD";
+        }
+        self.tokens = self.tokens + [tokens.makeToken(type, word, startLine, startCol)];
+    }
+
+    tryOperator(self) {
+        global [src = self.source];
+        global [p = self.pos];
+
+        # 3-char
+        global [three = ""];
+        if p + 3 <= len(src) {
+            three = src[p:p + 3];
+        }
+        global [i = 0];
+        while i < len(tokens.OPERATORS_3) {
+            if tokens.OPERATORS_3[i] == three {
+                self.tokens = self.tokens + [tokens.makeToken("OP", three, self.line, self.col)];
+                global [k = 0];
+                while k < 3 {
+                    self.advance();
+                    k = k + 1;
+                }
+                return true;
+            }
+            i = i + 1;
+        }
+
+        # 2-char
+        global [two = ""];
+        if p + 2 <= len(src) {
+            two = src[p:p + 2];
+        }
+        i = 0;
+        while i < len(tokens.OPERATORS_2) {
+            if tokens.OPERATORS_2[i] == two {
+                self.tokens = self.tokens + [tokens.makeToken("OP", two, self.line, self.col)];
+                self.advance();
+                self.advance();
+                return true;
+            }
+            i = i + 1;
+        }
+
+        # 1-char
+        global [one = ""];
+        if p < len(src) {
+            one = src[p:p + 1];
+        }
+        i = 0;
+        while i < len(tokens.OPERATORS_1) {
+            if tokens.OPERATORS_1[i] == one {
+                self.tokens = self.tokens + [tokens.makeToken("OP", one, self.line, self.col)];
+                self.advance();
+                return true;
+            }
+            i = i + 1;
+        }
+
+        return false;
+    }
+}
+
+# ============================================================
+# CONVENIENCE FUNCTIONS
+# ============================================================
+
+function tokenize(source) {
+    global [lex = Lexer(source)];
+    return lex.tokenize();
+}
+
+function printTokens(toks) {
+    global [i = 0];
+    while i < len(toks) {
+        global [t = toks[i]];
+        if t[0] != "NEWLINE" {
+            print tokens.tokenToString(t);
+        }
+        i = i + 1;
+    }
+}

@@ -1,0 +1,19 @@
+# JpxOsint - Sample URL list
+# Format: satu URL per baris
+# Baris dengan # di awal = komentar (diabaikan)
+
+# Working public URLs (HTTP 200)
+https://httpbin.org/get
+https://httpbin.org/status/200
+https://jsonplaceholder.typicode.com/posts/1
+https://api.github.com
+https://www.example.com
+
+# URLs yang return status code spesifik (untuk testing)
+https://httpbin.org/status/301
+https://httpbin.org/status/404
+https://httpbin.org/status/500
+
+# URLs yang mungkin timeout atau error
+https://httpbin.org/delay/5
+https://httpbin.org/status/403

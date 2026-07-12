@@ -1,0 +1,212 @@
+# test_lexer.jpx - Test lexer.jpx (self-hosted lexer)
+
+[tokens];
+[lexer];
+
+global [passed = 0];
+global [failed = 0];
+
+function ok(name, cond) {
+    if cond {
+        global [passed = passed + 1];
+        print "  PASS  " + name;
+    } else {
+        global [failed = failed + 1];
+        print "  FAIL  " + name;
+    }
+}
+
+function expect(name, actual, expected) {
+    if actual == expected {
+        global [passed = passed + 1];
+        print "  PASS  " + name;
+    } else {
+        global [failed = failed + 1];
+        print "  FAIL  " + name + " (expected " + expected + ", got " + actual + ")";
+    }
+}
+
+print "=== TOKEN TYPE TESTS ===";
+expect("isDigit 5", tokens.isDigit("5"), true);
+expect("isDigit a", tokens.isDigit("a"), false);
+expect("isAlpha A", tokens.isAlpha("A"), true);
+expect("isAlpha z", tokens.isAlpha("z"), true);
+expect("isAlpha _", tokens.isAlpha("_"), true);
+expect("isAlpha 1", tokens.isAlpha("1"), false);
+expect("isAlphaNum a", tokens.isAlphaNum("a"), true);
+expect("isAlphaNum 1", tokens.isAlphaNum("1"), true);
+expect("isAlphaNum bang", tokens.isAlphaNum("!"), false);
+expect("isSpace sp", tokens.isSpace(" "), true);
+expect("isSpace tab", tokens.isSpace("\t"), true);
+expect("isSpace a", tokens.isSpace("a"), false);
+expect("isKeyword fn", tokens.isKeyword("function"), true);
+expect("isKeyword foo", tokens.isKeyword("foo"), false);
+expect("isPunctChar paren", tokens.isPunctChar("("), true);
+expect("isPunctChar x", tokens.isPunctChar("x"), false);
+
+print "";
+print "=== TOKENIZE: BASIC ===";
+
+global [toks = lexer.tokenize("x = 42;")];
+print "Tokens for 'x = 42;':";
+lexer.printTokens(toks);
+print "";
+
+global [count = 0];
+global [i = 0];
+while i < len(toks) {
+    if toks[i][0] != "NEWLINE" {
+        count = count + 1;
+    }
+    i = i + 1;
+}
+expect("basic token count", count, 5);
+expect("first token type", toks[0][0], "IDENT");
+expect("first token value", toks[0][1], "x");
+expect("second token type", toks[1][0], "OP");
+expect("second token value", toks[1][1], "=");
+expect("number token type", toks[2][0], "NUMBER");
+expect("number token value", toks[2][1], "42");
+
+print "";
+print "=== TOKENIZE: STRING ===";
+
+global [toks2 = lexer.tokenize("\"hello world\"")];
+print "Tokens:";
+lexer.printTokens(toks2);
+print "";
+expect("string token type", toks2[0][0], "STRING");
+expect("string token value", toks2[0][1], "hello world");
+
+print "";
+print "=== TOKENIZE: ESCAPE SEQUENCE ===";
+
+global [toks3 = lexer.tokenize("\"line1\\nline2\"")];
+print "Tokens:";
+lexer.printTokens(toks3);
+print "";
+expect("escaped newline in string", toks3[0][1], "line1\nline2");
+
+print "";
+print "=== TOKENIZE: NUMBERS ===";
+
+global [toks4 = lexer.tokenize("42 3.14 1e10")];
+print "Tokens:";
+lexer.printTokens(toks4);
+print "";
+global [nums = []];
+global [i = 0];
+while i < len(toks4) {
+    if toks4[i][0] == "NUMBER" {
+        nums = nums + [toks4[i][1]];
+    }
+    i = i + 1;
+}
+expect("3 number tokens", len(nums), 3);
+expect("first number 42", nums[0], "42");
+expect("second number 3.14", nums[1], "3.14");
+expect("third number 1e10", nums[2], "1e10");
+
+print "";
+print "=== TOKENIZE: KEYWORDS ===";
+
+global [toks5 = lexer.tokenize("function if else while for return")];
+print "Tokens:";
+lexer.printTokens(toks5);
+print "";
+global [kwCount = 0];
+global [i = 0];
+while i < len(toks5) {
+    if toks5[i][0] == "KEYWORD" {
+        kwCount = kwCount + 1;
+    }
+    i = i + 1;
+}
+expect("6 keyword tokens", kwCount, 6);
+
+print "";
+print "=== TOKENIZE: OPERATORS ===";
+
+global [toks6 = lexer.tokenize("a == b != c <= d >= e")];
+print "Tokens:";
+lexer.printTokens(toks6);
+print "";
+global [opCount = 0];
+global [ops = []];
+global [i = 0];
+while i < len(toks6) {
+    if toks6[i][0] == "OP" {
+        opCount = opCount + 1;
+        ops = ops + [toks6[i][1]];
+    }
+    i = i + 1;
+}
+expect("4 op tokens", opCount, 4);
+expect("first op ==", ops[0], "==");
+expect("second op !=", ops[1], "!=");
+expect("third op <=", ops[2], "<=");
+expect("fourth op >=", ops[3], ">=");
+
+print "";
+print "=== TOKENIZE: INTEGER DIVISION ===";
+
+global [toks7 = lexer.tokenize("17 // 5")];
+print "Tokens:";
+lexer.printTokens(toks7);
+print "";
+expect("integer div first NUMBER", toks7[0][0], "NUMBER");
+expect("integer div first value 17", toks7[0][1], "17");
+expect("integer div second OP", toks7[1][0], "OP");
+expect("integer div op value //", toks7[1][1], "//");
+expect("integer div third NUMBER", toks7[2][0], "NUMBER");
+expect("integer div third value 5", toks7[2][1], "5");
+
+print "";
+print "=== TOKENIZE: COMMENT SKIP ===";
+
+global [toks8 = lexer.tokenize("# this is a comment\nx = 1")];
+print "Tokens:";
+lexer.printTokens(toks8);
+print "";
+global [idents = []];
+global [i = 0];
+while i < len(toks8) {
+    if toks8[i][0] == "IDENT" {
+        idents = idents + [toks8[i][1]];
+    }
+    i = i + 1;
+}
+expect("comment skipped 1 IDENT", len(idents), 1);
+expect("comment skipped IDENT is x", idents[0], "x");
+
+print "";
+print "=== TOKENIZE: FULL PROGRAM ===";
+
+global [src = "function add(a, b) { return a + b; }"];
+global [toks10 = lexer.tokenize(src)];
+print "Source: " + src;
+print "Tokens:";
+lexer.printTokens(toks10);
+print "";
+
+global [realCount = 0];
+global [i = 0];
+while i < len(toks10) {
+    global [tt = toks10[i][0]];
+    if tt != "NEWLINE" and tt != "EOF" {
+        realCount = realCount + 1;
+    }
+    i = i + 1;
+}
+expect("full program token count", realCount, 14);
+
+print "";
+print "=== TOTAL ===";
+print "Passed: " + passed;
+print "Failed: " + failed;
+
+if failed == 0 {
+    print "ALL TESTS PASSED";
+} else {
+    print "SOME TESTS FAILED";
+}

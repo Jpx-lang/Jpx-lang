@@ -1,0 +1,84 @@
+# jpx/functional.jpx - Functional programming utilities (self-hosted)
+#
+# Usage:
+#   [jpx.functional];
+#   global [doubled = functional.map([1,2,3], double_fn)];
+#   global [evens = functional.filter([1,2,3,4], isEven_fn)];
+#   global [total = functional.reduce([1,2,3,4], 0, add_fn)];
+
+function map(arr, fn) {
+    if arr is null { return []; }
+    global [result = []];
+    global [i = 0];
+    while i < len(arr) {
+        global [fn_ref = fn];
+        result = result + [fn_ref(arr[i])];
+        i = i + 1;
+    }
+    return result;
+}
+
+function filter(arr, fn) {
+    if arr is null { return []; }
+    global [result = []];
+    global [i = 0];
+    while i < len(arr) {
+        global [fn_ref = fn];
+        if fn_ref(arr[i]) {
+            result = result + [arr[i]];
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+function reduce(arr, initial, fn) {
+    if arr is null { return initial; }
+    global [result = initial];
+    global [i = 0];
+    while i < len(arr) {
+        global [fn_ref = fn];
+        result = fn_ref(result, arr[i]);
+        i = i + 1;
+    }
+    return result;
+}
+
+function each(arr, fn) {
+    if arr is null { return; }
+    global [i = 0];
+    while i < len(arr) {
+        global [fn_ref = fn];
+        fn_ref(arr[i]);
+        i = i + 1;
+    }
+}
+
+function pipe(input, fns) {
+    global [result = input];
+    global [i = 0];
+    while i < len(fns) {
+        global [fn_ref = fns[i]];
+        result = fn_ref(result);
+        i = i + 1;
+    }
+    return result;
+}
+
+function compose(fns) {
+    function composed(x) {
+        return pipe(x, fns);
+    }
+    return composed;
+}
+
+function identity(x) {
+    return x;
+}
+
+function constant(val) {
+    function const_fn() {
+        return val;
+    }
+    return const_fn;
+}

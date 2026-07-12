@@ -1,0 +1,529 @@
+# ast.jpx - AST node helpers (self-hosted)
+#
+# AST node direpresentasikan sebagai nested list:
+#   [TYPE, ...args]
+#
+# Contoh:
+#   ["num", 42]              -> literal angka
+#   ["str", "hello"]         -> literal string
+#   ["bool", true]           -> literal boolean
+#   ["null"]                 -> literal null
+#   ["ident", "x"]           -> identifier
+#   ["binop", "+", left, right]
+#   ["unary", "-", operand]
+#   ["assign", target, value]
+#   ["call", callee, [args]]
+#   ["member", obj, "field"]
+#   ["index", obj, idx]
+#   ["slice", obj, start, end]
+#   ["list", [elements]]
+#   ["object", [(key, val), ...]]
+#   ["ternary", cond, then, else]
+#   ["logical", "and", left, right]
+#
+# Statements:
+#   ["program", [stmts]]
+#   ["expr_stmt", expr]
+#   ["func_def", name, [params], [body]]
+#   ["return", expr_or_null]
+#   ["if", cond, [then_body], [else_body]]
+#   ["while", cond, [body]]
+#   ["for_to", var, start, end, [body]]
+#   ["for_in", var, iterable, [body]]
+#   ["break"]
+#   ["continue"]
+#   ["try_catch", [try_body], param, [catch_body]]
+#   ["global", name, value_expr_or_null]
+#   ["import", "module_name"]
+#   ["class_def", name, init_or_null, {methods}]
+
+# ============================================================
+# EXPRESSION NODES
+# ============================================================
+
+function makeNum(value) {
+    return ["num", value];
+}
+
+function makeStr(value) {
+    return ["str", value];
+}
+
+function makeBool(value) {
+    return ["bool", value];
+}
+
+function makeNull() {
+    return ["null"];
+}
+
+function makeIdent(name) {
+    return ["ident", name];
+}
+
+function makeBinop(op, left, right) {
+    return ["binop", op, left, right];
+}
+
+function makeUnary(op, operand) {
+    return ["unary", op, operand];
+}
+
+function makeLogical(op, left, right) {
+    return ["logical", op, left, right];
+}
+
+function makeTernary(cond, thenExpr, elseExpr) {
+    return ["ternary", cond, thenExpr, elseExpr];
+}
+
+function makeAssign(target, value) {
+    return ["assign", target, value];
+}
+
+function makeCall(callee, args) {
+    return ["call", callee, args];
+}
+
+function makeMember(obj, field) {
+    return ["member", obj, field];
+}
+
+function makeIndex(obj, idx) {
+    return ["index", obj, idx];
+}
+
+function makeSlice(obj, start, end) {
+    return ["slice", obj, start, end];
+}
+
+function makeList(elements) {
+    return ["list", elements];
+}
+
+function makeObject(pairs) {
+    return ["object", pairs];
+}
+
+function makeLambda(params, body) {
+    return ["lambda", params, body];
+}
+
+# ============================================================
+# STATEMENT NODES
+# ============================================================
+
+function makeProgram(body) {
+    return ["program", body];
+}
+
+function makeExprStmt(expr) {
+    return ["expr_stmt", expr];
+}
+
+function makeFuncDef(name, params, body) {
+    return ["func_def", name, params, body];
+}
+
+function makeReturn(expr) {
+    return ["return", expr];
+}
+
+function makeIf(cond, thenBody, elseBody) {
+    return ["if", cond, thenBody, elseBody];
+}
+
+function makeWhile(cond, body) {
+    return ["while", cond, body];
+}
+
+function makeForTo(varName, start, end, body) {
+    return ["for_to", varName, start, end, body];
+}
+
+function makeForIn(varName, iterable, body) {
+    return ["for_in", varName, iterable, body];
+}
+
+function makeBreak() {
+    return ["break"];
+}
+
+function makeContinue() {
+    return ["continue"];
+}
+
+function makeTryCatch(tryBody, param, catchBody) {
+    return ["try_catch", tryBody, param, catchBody];
+}
+
+function makeGlobal(name, value) {
+    return ["global", name, value];
+}
+
+function makeImport(moduleName) {
+    return ["import", moduleName];
+}
+
+function makeClassDef(name, init, methods) {
+    return ["class_def", name, init, methods];
+}
+
+# ============================================================
+# ACCESSORS
+# ============================================================
+
+function nodeType(node) {
+    return node[0];
+}
+
+# ============================================================
+# PRETTY PRINTER (untuk debug)
+# ============================================================
+
+function indent(level) {
+    # Return string of 'level' pairs of spaces
+    global [result = ""];
+    global [i = 0];
+    while i < level {
+        result = result + "  ";
+        i = i + 1;
+    }
+    return result;
+}
+
+function dump(node, level) {
+    # Print AST as tree (returns string)
+    global [pad = indent(level)];
+    if node == null {
+        return pad + "null";
+    }
+    if type(node) != "list" {
+        return pad + str(node);
+    }
+    if len(node) == 0 {
+        return pad + "[]";
+    }
+
+    global [ntype = node[0]];
+
+    # Literal nodes
+    if ntype == "num" {
+        return pad + "Num(" + node[1] + ")";
+    }
+    if ntype == "str" {
+        return pad + "Str(" + node[1] + ")";
+    }
+    if ntype == "bool" {
+        return pad + "Bool(" + node[1] + ")";
+    }
+    if ntype == "null" {
+        return pad + "Null";
+    }
+    if ntype == "ident" {
+        return pad + "Ident(" + node[1] + ")";
+    }
+
+    # Binary/Unary/Logical
+    if ntype == "binop" {
+        global [s = pad + "BinOp(" + node[1] + ")\n"];
+        s = s + dump(node[2], level + 1) + "\n";
+        s = s + dump(node[3], level + 1);
+        return s;
+    }
+    if ntype == "unary" {
+        global [s = pad + "Unary(" + node[1] + ")\n"];
+        s = s + dump(node[2], level + 1);
+        return s;
+    }
+    if ntype == "logical" {
+        global [s = pad + "Logical(" + node[1] + ")\n"];
+        s = s + dump(node[2], level + 1) + "\n";
+        s = s + dump(node[3], level + 1);
+        return s;
+    }
+
+    # Ternary
+    if ntype == "ternary" {
+        global [s = pad + "Ternary\n"];
+        s = s + dump(node[1], level + 1) + "\n";
+        s = s + dump(node[2], level + 1) + "\n";
+        s = s + dump(node[3], level + 1);
+        return s;
+    }
+
+    # Assignment
+    if ntype == "assign" {
+        global [s = pad + "Assign\n"];
+        s = s + dump(node[1], level + 1) + "\n";
+        s = s + dump(node[2], level + 1);
+        return s;
+    }
+
+    # Call
+    if ntype == "call" {
+        global [s = pad + "Call\n"];
+        s = s + dump(node[1], level + 1);
+        global [args = node[2]];
+        global [i = 0];
+        while i < len(args) {
+            s = s + "\n" + dump(args[i], level + 1);
+            i = i + 1;
+        }
+        return s;
+    }
+
+    # Member/Index/Slice
+    if ntype == "member" {
+        global [s = pad + "Member(" + node[2] + ")\n"];
+        s = s + dump(node[1], level + 1);
+        return s;
+    }
+    if ntype == "index" {
+        global [s = pad + "Index\n"];
+        s = s + dump(node[1], level + 1) + "\n";
+        s = s + dump(node[2], level + 1);
+        return s;
+    }
+    if ntype == "slice" {
+        global [s = pad + "Slice\n"];
+        s = s + dump(node[1], level + 1) + "\n";
+        s = s + dump(node[2], level + 1) + "\n";
+        s = s + dump(node[3], level + 1);
+        return s;
+    }
+
+    # List/Object
+    if ntype == "list" {
+        global [s = pad + "List\n"];
+        global [elems = node[1]];
+        global [i = 0];
+        while i < len(elems) {
+            s = s + dump(elems[i], level + 1) + "\n";
+            i = i + 1;
+        }
+        # Trim trailing newline
+        if len(s) > 0 {
+            if s[len(s) - 1] == "\n" {
+                s = s[:len(s) - 1];
+            }
+        }
+        return s;
+    }
+    if ntype == "object" {
+        global [s = pad + "Object\n"];
+        global [pairs = node[1]];
+        global [i = 0];
+        while i < len(pairs) {
+            global [pair = pairs[i]];
+            s = s + indent(level + 1) + "Pair(" + pair[0] + ")\n";
+            s = s + dump(pair[1], level + 2) + "\n";
+            i = i + 1;
+        }
+        if len(s) > 0 {
+            if s[len(s) - 1] == "\n" {
+                s = s[:len(s) - 1];
+            }
+        }
+        return s;
+    }
+
+    # Lambda
+    if ntype == "lambda" {
+        global [s = pad + "Lambda(" + node[1] + ")\n"];
+        global [body = node[2]];
+        global [i = 0];
+        while i < len(body) {
+            s = s + dump(body[i], level + 1) + "\n";
+            i = i + 1;
+        }
+        if len(s) > 0 {
+            if s[len(s) - 1] == "\n" {
+                s = s[:len(s) - 1];
+            }
+        }
+        return s;
+    }
+
+    # Statement nodes
+    if ntype == "program" {
+        global [s = pad + "Program\n"];
+        global [body = node[1]];
+        global [i = 0];
+        while i < len(body) {
+            s = s + dump(body[i], level + 1) + "\n";
+            i = i + 1;
+        }
+        if len(s) > 0 {
+            if s[len(s) - 1] == "\n" {
+                s = s[:len(s) - 1];
+            }
+        }
+        return s;
+    }
+    if ntype == "expr_stmt" {
+        global [s = pad + "ExprStmt\n"];
+        s = s + dump(node[1], level + 1);
+        return s;
+    }
+    if ntype == "func_def" {
+        global [s = pad + "FuncDef(" + node[1] + ")\n"];
+        s = s + indent(level + 1) + "Params: " + node[2] + "\n";
+        global [body = node[3]];
+        global [i = 0];
+        while i < len(body) {
+            s = s + dump(body[i], level + 1) + "\n";
+            i = i + 1;
+        }
+        if len(s) > 0 {
+            if s[len(s) - 1] == "\n" {
+                s = s[:len(s) - 1];
+            }
+        }
+        return s;
+    }
+    if ntype == "return" {
+        if node[1] == null {
+            return pad + "Return";
+        }
+        global [s = pad + "Return\n"];
+        s = s + dump(node[1], level + 1);
+        return s;
+    }
+    if ntype == "if" {
+        global [s = pad + "If\n"];
+        s = s + indent(level + 1) + "Cond:\n";
+        s = s + dump(node[1], level + 2) + "\n";
+        s = s + indent(level + 1) + "Then:\n";
+        global [thenBody = node[2]];
+        global [i = 0];
+        while i < len(thenBody) {
+            s = s + dump(thenBody[i], level + 2) + "\n";
+            i = i + 1;
+        }
+        s = s + indent(level + 1) + "Else:\n";
+        global [elseBody = node[3]];
+        i = 0;
+        while i < len(elseBody) {
+            s = s + dump(elseBody[i], level + 2) + "\n";
+            i = i + 1;
+        }
+        if len(s) > 0 {
+            if s[len(s) - 1] == "\n" {
+                s = s[:len(s) - 1];
+            }
+        }
+        return s;
+    }
+    if ntype == "while" {
+        global [s = pad + "While\n"];
+        s = s + dump(node[1], level + 1) + "\n";
+        global [body = node[2]];
+        global [i = 0];
+        while i < len(body) {
+            s = s + dump(body[i], level + 1) + "\n";
+            i = i + 1;
+        }
+        if len(s) > 0 {
+            if s[len(s) - 1] == "\n" {
+                s = s[:len(s) - 1];
+            }
+        }
+        return s;
+    }
+    if ntype == "for_to" {
+        global [s = pad + "ForTo(" + node[1] + ")\n"];
+        s = s + dump(node[2], level + 1) + "\n";
+        s = s + dump(node[3], level + 1) + "\n";
+        global [body = node[4]];
+        global [i = 0];
+        while i < len(body) {
+            s = s + dump(body[i], level + 1) + "\n";
+            i = i + 1;
+        }
+        if len(s) > 0 {
+            if s[len(s) - 1] == "\n" {
+                s = s[:len(s) - 1];
+            }
+        }
+        return s;
+    }
+    if ntype == "for_in" {
+        global [s = pad + "ForIn(" + node[1] + ")\n"];
+        s = s + dump(node[2], level + 1) + "\n";
+        global [body = node[3]];
+        global [i = 0];
+        while i < len(body) {
+            s = s + dump(body[i], level + 1) + "\n";
+            i = i + 1;
+        }
+        if len(s) > 0 {
+            if s[len(s) - 1] == "\n" {
+                s = s[:len(s) - 1];
+            }
+        }
+        return s;
+    }
+    if ntype == "break" {
+        return pad + "Break";
+    }
+    if ntype == "continue" {
+        return pad + "Continue";
+    }
+    if ntype == "try_catch" {
+        global [s = pad + "TryCatch\n"];
+        s = s + indent(level + 1) + "Try:\n";
+        global [tryBody = node[1]];
+        global [i = 0];
+        while i < len(tryBody) {
+            s = s + dump(tryBody[i], level + 2) + "\n";
+            i = i + 1;
+        }
+        s = s + indent(level + 1) + "Catch(" + node[2] + "):\n";
+        global [catchBody = node[3]];
+        i = 0;
+        while i < len(catchBody) {
+            s = s + dump(catchBody[i], level + 2) + "\n";
+            i = i + 1;
+        }
+        if len(s) > 0 {
+            if s[len(s) - 1] == "\n" {
+                s = s[:len(s) - 1];
+            }
+        }
+        return s;
+    }
+    if ntype == "global" {
+        if node[2] == null {
+            return pad + "Global(" + node[1] + ")";
+        }
+        global [s = pad + "Global(" + node[1] + ")\n"];
+        s = s + dump(node[2], level + 1);
+        return s;
+    }
+    if ntype == "import" {
+        return pad + "Import(" + node[1] + ")";
+    }
+    if ntype == "class_def" {
+        global [s = pad + "ClassDef(" + node[1] + ")\n"];
+        s = s + indent(level + 1) + "Methods:\n";
+        global [methods = node[3]];
+        global [keys = []];
+        # Note: dict iteration is tricky in JPX, kita iterate via list of method names
+        # Kalau methods adalah dict, kita lewati dulu untuk simplicity
+        return s;
+    }
+
+    # Unknown node type
+    return pad + "Unknown(" + type + ")";
+}
+
+function dumpString(node) {
+    # Return dump as string (alias)
+    return dump(node, 0);
+}
+
+function printDump(node) {
+    # Print dump langsung
+    print dump(node, 0);
+}

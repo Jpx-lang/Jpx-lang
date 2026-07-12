@@ -1,0 +1,41 @@
+# test_native_import.jpx - Test import .py module (native Python)
+# Menunjukkan bahwa .py dan .jpx bisa hidup berdampingan
+
+# Import built-in .py module dari library/
+[string];
+[json];
+[time];
+[math];
+
+print "=== NATIVE (.py) MODULE IMPORT ===";
+print "";
+
+# string.py
+print "string.upper('hello'): " + string.upper("hello");
+print "string.lower('WORLD'): " + string.lower("WORLD");
+print "string.md5('test'): " + string.md5("test");
+print "string.length('hello'): " + string.length("hello");
+print "";
+
+# json.py
+global [data = {"name": "Alice", "age": 30}];
+print "json.encode(data): " + json.encode(data);
+global [back = json.decode(json.encode(data))];
+print "json.decode roundtrip: " + json.encode(back);
+print "json.keys: " + json.keys(back);
+print "";
+
+# time.py
+print "time.now: " + time.now;
+print "time.year: " + time.year;
+print "time.month: " + time.month;
+print "time.format: " + time.format;
+print "";
+
+# math.py
+print "math.floor(3.7): " + math.floor(3.7);
+print "math.ceil(3.2): " + math.ceil(3.2);
+print "math.abs(-5): " + math.abs(-5);
+print "";
+
+print "All native modules loaded successfully!";

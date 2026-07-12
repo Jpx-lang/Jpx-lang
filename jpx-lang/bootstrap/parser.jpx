@@ -1,0 +1,856 @@
+# parser.jpx - JPX Recursive Descent Parser (self-hosted)
+#
+# Konsumsi list of Token dari lexer.jpx, hasilkan AST node (list-based)
+# menggunakan helpers dari ast.jpx.
+#
+# Grammar (simplified):
+#   program        = statement*
+#   statement      = func_def | class_def | return | if | while | for
+#                   | break | continue | try | global | import
+#                   | expr_stmt
+#   expression     = ternary
+#   ternary        = assignment ('?' assignment ':' assignment)?
+#   assignment     = logical_or ('=' | '+=' | '-=' | '*=' | '/=' assignment)?
+#   logical_or     = logical_and ('or' | '||' logical_and)*
+#   logical_and    = equality ('and' | '&&' equality)*
+#   equality       = comparison (('==' | '!=' | '===' | '!==') comparison)*
+#   comparison     = bit_or (('<' | '>' | '<=' | '>=') bit_or)*
+#   bit_or         = bit_xor ('|' bit_xor)*
+#   bit_xor        = bit_and ('^' bit_and)*
+#   bit_and        = shift ('&' shift)*
+#   shift          = additive (('<<' | '>>') additive)*
+#   additive       = multiplicative (('+' | '-') multiplicative)*
+#   multiplicative = unary (('*' | '/' | '//' | '%') unary)*
+#   unary          = ('-' | '!' | 'not') unary | postfix
+#   postfix        = primary ('.' IDENT | '(' args ')' | '[' index ']')*
+#   primary        = NUMBER | STRING | true | false | null | IDENT
+#                   | '(' expression ')' | '[' list ']' | '{' object '}'
+#                   | 'function' '(' params ')' '{' block '}'
+
+[tokens];
+[ast];
+
+# ============================================================
+# PARSER CLASS
+# ============================================================
+
+class Parser {
+    __init__(self, toks) {
+        # Filter NEWLINE tokens (kita pakai ; sebagai separator)
+        global [filtered = []];
+        global [i = 0];
+        while i < len(toks) {
+            if toks[i][0] != "NEWLINE" {
+                filtered = filtered + [toks[i]];
+            }
+            i = i + 1;
+        }
+        self.tokens = filtered;
+        self.pos = 0;
+    }
+
+    # ============================================================
+    # TOKEN HELPERS
+    # ============================================================
+
+    peek(self, offset) {
+        global [p = self.pos + offset];
+        if p < len(self.tokens) {
+            return self.tokens[p];
+        }
+        # Return EOF token
+        return ["EOF", "", 0, 0];
+    }
+
+    current(self) {
+        return self.peek(0);
+    }
+
+    advance(self) {
+        global [t = self.current()];
+        if self.pos < len(self.tokens) - 1 {
+            self.pos = self.pos + 1;
+        }
+        return t;
+    }
+
+    atEnd(self) {
+        global [t = self.current()];
+        return t[0] == "EOF";
+    }
+
+    check(self, type_, value) {
+        global [t = self.current()];
+        if t[0] != type_ {
+            return false;
+        }
+        if value != null {
+            if t[1] != value {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    match(self, type_, value) {
+        if self.check(type_, value) {
+            return self.advance();
+        }
+        return null;
+    }
+
+    expect(self, type_, value) {
+        if self.check(type_, value) {
+            return self.advance();
+        }
+        global [t = self.current()];
+        global [want = type_];
+        if value != null {
+            want = type_ + " " + value;
+        }
+        global [got = t[0]];
+        if t[1] != "" {
+            got = t[0] + " " + t[1];
+        }
+        print "Parse error at line " + t[2] + ": expected " + want + ", got " + got;
+        return null;
+    }
+
+    # ============================================================
+    # ENTRY POINT
+    # ============================================================
+
+    parseProgram(self) {
+        global [body = []];
+        while not self.atEnd() {
+            global [stmt = self.parseStatement()];
+            if stmt != null {
+                body = body + [stmt];
+            }
+        }
+        return ast.makeProgram(body);
+    }
+
+    # ============================================================
+    # STATEMENTS
+    # ============================================================
+
+    parseStatement(self) {
+        global [t = self.current()];
+
+        # Keyword-based statements
+        if t[0] == "KEYWORD" {
+            if t[1] == "function" {
+                return self.parseFunctionDef();
+            }
+            if t[1] == "class" {
+                return self.parseClassDef();
+            }
+            if t[1] == "return" {
+                return self.parseReturn();
+            }
+            if t[1] == "if" {
+                return self.parseIf();
+            }
+            if t[1] == "while" {
+                return self.parseWhile();
+            }
+            if t[1] == "for" {
+                return self.parseFor();
+            }
+            if t[1] == "break" {
+                self.advance();
+                self.match("PUNCT", ";");
+                return ast.makeBreak();
+            }
+            if t[1] == "continue" {
+                self.advance();
+                self.match("PUNCT", ";");
+                return ast.makeContinue();
+            }
+            if t[1] == "try" {
+                return self.parseTryCatch();
+            }
+            if t[1] == "global" {
+                return self.parseGlobal();
+            }
+        }
+
+        # Import: [module] — hanya jika `[` diikuti IDENT (nama modul).
+        # Kalau `[` diikuti NUMBER/STRING/dll, itu list literal expression.
+        if self.check("PUNCT", "[") {
+            global [nextTok = self.peek(1)];
+            if nextTok[0] == "IDENT" {
+                return self.parseImport();
+            }
+        }
+
+        # Print statement: 'print expr;' (JPX built-in keyword)
+        # Di JPX, `print` adalah statement keyword, bukan function.
+        # Tapi untuk evaluator, kita representasikan sebagai Call(Ident(print), [expr])
+        if t[0] == "IDENT" and t[1] == "print" {
+            self.advance();  # consume 'print'
+            global [printExpr = self.parseExpression()];
+            self.match("PUNCT", ";");
+            return ast.makeExprStmt(ast.makeCall(ast.makeIdent("print"), [printExpr]));
+        }
+
+        # Expression statement
+        global [expr = self.parseExpression()];
+        self.match("PUNCT", ";");
+        return ast.makeExprStmt(expr);
+    }
+
+    parseBlock(self) {
+        self.expect("PUNCT", "{");
+        global [body = []];
+        while not self.check("PUNCT", "}") and not self.atEnd() {
+            global [stmt = self.parseStatement()];
+            if stmt != null {
+                body = body + [stmt];
+            }
+        }
+        self.expect("PUNCT", "}");
+        return body;
+    }
+
+    parseFunctionDef(self) {
+        self.expect("KEYWORD", "function");
+        global [nameTok = self.expect("IDENT")];
+        global [name = ""];
+        if nameTok != null {
+            name = nameTok[1];
+        }
+        global [params = self.parseParams()];
+        global [body = self.parseBlock()];
+        return ast.makeFuncDef(name, params, body);
+    }
+
+    parseParams(self) {
+        self.expect("PUNCT", "(");
+        global [params = []];
+        if not self.check("PUNCT", ")") {
+            # Loop baca params dipisah koma
+            global [done = false];
+            while not done {
+                global [p = self.expect("IDENT")];
+                if p != null {
+                    params = params + [p[1]];
+                }
+                # Skip default value jika ada (IDENT = expr)
+                if self.match("OP", "=") {
+                    self.parseExpression();  # consume default, ignore for now
+                }
+                if not self.match("PUNCT", ",") {
+                    done = true;
+                }
+            }
+        }
+        self.expect("PUNCT", ")");
+        return params;
+    }
+
+    parseClassDef(self) {
+        self.expect("KEYWORD", "class");
+        global [nameTok = self.expect("IDENT")];
+        global [name = ""];
+        if nameTok != null {
+            name = nameTok[1];
+        }
+        self.expect("PUNCT", "{");
+
+        global [initNode = null];
+        global [methods = {}];
+
+        while not self.check("PUNCT", "}") and not self.atEnd() {
+            # Method: IDENT ( params ) { body }
+            global [methodTok = self.expect("IDENT")];
+            if methodTok == null {
+                # Skip unknown
+                self.advance();
+                continue;
+            }
+            global [methodName = methodTok[1]];
+            global [params = self.parseParams()];
+            global [body = self.parseBlock()];
+
+            # Build func_def node
+            global [methodNode = ast.makeFuncDef(methodName, params, body)];
+            if methodName == "__init__" {
+                initNode = methodNode;
+            } else {
+                # Add to methods dict (menggunakan key-value pair manual)
+                # Note: JPX dict assignment ke key baru
+                methods[methodName] = methodNode;
+            }
+        }
+        self.expect("PUNCT", "}");
+
+        return ast.makeClassDef(name, initNode, methods);
+    }
+
+    parseReturn(self) {
+        self.expect("KEYWORD", "return");
+        # Cek jika ada expression atau langsung ;
+        if self.check("PUNCT", ";") or self.check("PUNCT", "}") {
+            self.match("PUNCT", ";");
+            return ast.makeReturn(null);
+        }
+        global [expr = self.parseExpression()];
+        self.match("PUNCT", ";");
+        return ast.makeReturn(expr);
+    }
+
+    parseIf(self) {
+        self.expect("KEYWORD", "if");
+        global [cond = self.parseExpression()];
+        global [thenBody = self.parseBlock()];
+
+        global [elseBody = []];
+        if self.match("KEYWORD", "elif") {
+            # elif: re-parse sebagai if dan wrap
+            # Tapi karena kita sudah consume elif, kita perlu re-parse
+            # Manual: ambil cond lalu block lalu cek else/elif lagi
+            global [elifCond = self.parseExpression()];
+            global [elifBody = self.parseBlock()];
+            global [elifElseBody = []];
+            # Recursive: kita simulate dengan inline
+            # Karena JPX gak punna easy nested parse, kita build manual
+            # elseBody = [if(elifCond, elifBody, ?)]
+            # Tapi elif bisa berlanjut... kita recursive call self.parseIfFromElif
+            # Simpler: kita buat if node dengan cond=elifCond, thenBody=elifBody,
+            # dan elseBody yang akan diisi next
+            # Kita cek if ada else / elif setelah ini
+            global [innerElse = []];
+            if self.match("KEYWORD", "elif") {
+                # Nested elif — recursion via inline if-else
+                # Tapi kita gak bisa call parseIf lagi karena 'if' sudah di-consume
+                # Solution: kita simpan state dan loop
+                # Untuk simplicity, kita hanya support 1 level elif di sini
+                # Lalu gunakan recursive helper
+                innerElse = [self._parseElifChain()];
+            } elif self.match("KEYWORD", "else") {
+                innerElse = self.parseBlock();
+            }
+            elseBody = [ast.makeIf(elifCond, elifBody, innerElse)];
+        } elif self.match("KEYWORD", "else") {
+            # Cek apakah setelah else ada 'if' (else if = elif)
+            if self.check("KEYWORD", "if") {
+                elseBody = [self.parseIf()];
+            } else {
+                elseBody = self.parseBlock();
+            }
+        }
+
+        return ast.makeIf(cond, thenBody, elseBody);
+    }
+
+    _parseElifChain(self) {
+        # Helper untuk parse elif berantai
+        global [cond = self.parseExpression()];
+        global [body = self.parseBlock()];
+        global [elseBody = []];
+        if self.match("KEYWORD", "elif") {
+            elseBody = [self._parseElifChain()];
+        } elif self.match("KEYWORD", "else") {
+            elseBody = self.parseBlock();
+        }
+        return ast.makeIf(cond, body, elseBody);
+    }
+
+    parseWhile(self) {
+        self.expect("KEYWORD", "while");
+        global [cond = self.parseExpression()];
+        global [body = self.parseBlock()];
+        return ast.makeWhile(cond, body);
+    }
+
+    parseFor(self) {
+        self.expect("KEYWORD", "for");
+        global [varTok = self.expect("IDENT")];
+        global [varName = ""];
+        if varTok != null {
+            varName = varTok[1];
+        }
+
+        # for var = start to end { body }
+        if self.match("OP", "=") {
+            global [startExpr = self.parseExpression()];
+            self.expect("KEYWORD", "to");
+            global [endExpr = self.parseExpression()];
+            global [body = self.parseBlock()];
+            return ast.makeForTo(varName, startExpr, endExpr, body);
+        }
+
+        # for var in iterable { body }
+        if self.match("KEYWORD", "in") {
+            global [iterable = self.parseExpression()];
+            global [body = self.parseBlock()];
+            return ast.makeForIn(varName, iterable, body);
+        }
+
+        print "Parse error: expected '=' or 'in' after for-var";
+        return null;
+    }
+
+    parseTryCatch(self) {
+        self.expect("KEYWORD", "try");
+        global [tryBody = self.parseBlock()];
+        self.expect("KEYWORD", "catch");
+        global [param = "e"];
+        if self.match("PUNCT", "(") {
+            global [pTok = self.expect("IDENT")];
+            if pTok != null {
+                param = pTok[1];
+            }
+            self.expect("PUNCT", ")");
+        }
+        global [catchBody = self.parseBlock()];
+        return ast.makeTryCatch(tryBody, param, catchBody);
+    }
+
+    parseGlobal(self) {
+        self.expect("KEYWORD", "global");
+        self.expect("PUNCT", "[");
+        global [nameTok = self.expect("IDENT")];
+        global [name = ""];
+        if nameTok != null {
+            name = nameTok[1];
+        }
+        global [value = null];
+        if self.match("OP", "=") {
+            value = self.parseExpression();
+        }
+        self.expect("PUNCT", "]");
+        self.match("PUNCT", ";");
+        return ast.makeGlobal(name, value);
+    }
+
+    parseImport(self) {
+        self.expect("PUNCT", "[");
+        global [parts = []];
+        global [firstTok = self.expect("IDENT")];
+        if firstTok != null {
+            parts = parts + [firstTok[1]];
+        }
+        while self.match("PUNCT", ".") {
+            global [t = self.expect("IDENT")];
+            if t != null {
+                parts = parts + [t[1]];
+            }
+        }
+        self.expect("PUNCT", "]");
+        self.match("PUNCT", ";");
+
+        # Join parts dengan "."
+        global [moduleName = ""];
+        global [i = 0];
+        while i < len(parts) {
+            if i > 0 {
+                moduleName = moduleName + ".";
+            }
+            moduleName = moduleName + parts[i];
+            i = i + 1;
+        }
+        return ast.makeImport(moduleName);
+    }
+
+    # ============================================================
+    # EXPRESSIONS (Precedence Climbing)
+    # ============================================================
+
+    parseExpression(self) {
+        return self.parseTernary();
+    }
+
+    parseTernary(self) {
+        global [cond = self.parseAssignment()];
+        if self.match("PUNCT", "?") {
+            global [thenExpr = self.parseAssignment()];
+            self.expect("PUNCT", ":");
+            global [elseExpr = self.parseAssignment()];
+            return ast.makeTernary(cond, thenExpr, elseExpr);
+        }
+        return cond;
+    }
+
+    parseAssignment(self) {
+        global [left = self.parseOr()];
+        # Cek assignment operator
+        global [t = self.current()];
+        if t[0] == "OP" {
+            if t[1] == "=" or t[1] == "+=" or t[1] == "-=" or t[1] == "*=" or t[1] == "/=" {
+                self.advance();
+                global [right = self.parseAssignment()];
+                # Untuk simplicity, hanya support '=' (compound assignment TODO)
+                return ast.makeAssign(left, right);
+            }
+        }
+        return left;
+    }
+
+    parseOr(self) {
+        global [left = self.parseAnd()];
+        global [done = false];
+        while not done {
+            global [matched = false];
+            if self.check("KEYWORD", "or") {
+                self.advance();
+                matched = true;
+            } elif self.match("OP", "||") {
+                matched = true;
+            }
+            if matched {
+                global [right = self.parseAnd()];
+                left = ast.makeLogical("or", left, right);
+            } else {
+                done = true;
+            }
+        }
+        return left;
+    }
+
+    parseAnd(self) {
+        global [left = self.parseEquality()];
+        global [done = false];
+        while not done {
+            global [matched = false];
+            if self.check("KEYWORD", "and") {
+                self.advance();
+                matched = true;
+            } elif self.match("OP", "&&") {
+                matched = true;
+            }
+            if matched {
+                global [right = self.parseEquality()];
+                left = ast.makeLogical("and", left, right);
+            } else {
+                done = true;
+            }
+        }
+        return left;
+    }
+
+    parseEquality(self) {
+        global [left = self.parseComparison()];
+        global [done = false];
+        while not done {
+            global [op = null];
+            global [t = self.current()];
+            if t[0] == "OP" {
+                if t[1] == "==" or t[1] == "!=" or t[1] == "===" or t[1] == "!==" {
+                    op = t[1];
+                }
+            }
+            if op != null {
+                self.advance();
+                global [right = self.parseComparison()];
+                left = ast.makeBinop(op, left, right);
+            } else {
+                done = true;
+            }
+        }
+        return left;
+    }
+
+    parseComparison(self) {
+        global [left = self.parseAdditive()];
+        global [done = false];
+        while not done {
+            global [op = null];
+            global [t = self.current()];
+            # Comparison operators
+            if t[0] == "OP" {
+                if t[1] == "<" or t[1] == ">" or t[1] == "<=" or t[1] == ">=" {
+                    op = t[1];
+                }
+            }
+            # `in` operator (membership) — keyword, bukan OP
+            if op == null {
+                if self.check("KEYWORD", "in") {
+                    op = "in";
+                    self.advance();
+                }
+            }
+            # `is` operator (identity) — keyword
+            if op == null {
+                if self.check("KEYWORD", "is") {
+                    op = "is";
+                    self.advance();
+                }
+            }
+            if op != null {
+                global [right = self.parseAdditive()];
+                left = ast.makeBinop(op, left, right);
+            } else {
+                done = true;
+            }
+        }
+        return left;
+    }
+
+    parseAdditive(self) {
+        global [left = self.parseMultiplicative()];
+        global [done = false];
+        while not done {
+            global [op = null];
+            global [t = self.current()];
+            if t[0] == "OP" {
+                if t[1] == "+" or t[1] == "-" {
+                    op = t[1];
+                }
+            }
+            if op != null {
+                self.advance();
+                global [right = self.parseMultiplicative()];
+                left = ast.makeBinop(op, left, right);
+            } else {
+                done = true;
+            }
+        }
+        return left;
+    }
+
+    parseMultiplicative(self) {
+        global [left = self.parseUnary()];
+        global [done = false];
+        while not done {
+            global [op = null];
+            global [t = self.current()];
+            if t[0] == "OP" {
+                if t[1] == "*" or t[1] == "/" or t[1] == "%" {
+                    op = t[1];
+                } elif t[1] == "//" {
+                    op = "//";
+                }
+            }
+            if op != null {
+                self.advance();
+                global [right = self.parseUnary()];
+                left = ast.makeBinop(op, left, right);
+            } else {
+                done = true;
+            }
+        }
+        return left;
+    }
+
+    parseUnary(self) {
+        global [t = self.current()];
+        if t[0] == "OP" {
+            if t[1] == "-" or t[1] == "!" {
+                self.advance();
+                global [operand = self.parseUnary()];
+                return ast.makeUnary(t[1], operand);
+            }
+        }
+        if self.check("KEYWORD", "not") {
+            self.advance();
+            global [operand = self.parseUnary()];
+            return ast.makeUnary("not", operand);
+        }
+        return self.parsePostfix();
+    }
+
+    parsePostfix(self) {
+        global [expr = self.parsePrimary()];
+        global [done = false];
+        while not done {
+            if self.match("PUNCT", ".") {
+                # Member access
+                global [propTok = self.expect("IDENT")];
+                if propTok != null {
+                    expr = ast.makeMember(expr, propTok[1]);
+                } else {
+                    done = true;
+                }
+            } elif self.match("PUNCT", "(") {
+                # Function call
+                global [args = self.parseArgs()];
+                self.expect("PUNCT", ")");
+                expr = ast.makeCall(expr, args);
+            } elif self.match("PUNCT", "[") {
+                # Index or slice
+                if self.match("PUNCT", ":") {
+                    # [:end]
+                    global [endExpr = null];
+                    if not self.check("PUNCT", "]") {
+                        endExpr = self.parseExpression();
+                    }
+                    self.expect("PUNCT", "]");
+                    expr = ast.makeSlice(expr, ast.makeNull(), endExpr);
+                    # Note: ast.makeNull() sebagai marker "no start"
+                } else {
+                    global [idx = self.parseExpression()];
+                    if self.match("PUNCT", ":") {
+                        global [endExpr = null];
+                        if not self.check("PUNCT", "]") {
+                            endExpr = self.parseExpression();
+                        }
+                        self.expect("PUNCT", "]");
+                        expr = ast.makeSlice(expr, idx, endExpr);
+                    } else {
+                        self.expect("PUNCT", "]");
+                        expr = ast.makeIndex(expr, idx);
+                    }
+                }
+            } else {
+                done = true;
+            }
+        }
+        return expr;
+    }
+
+    parseArgs(self) {
+        global [args = []];
+        if not self.check("PUNCT", ")") {
+            global [done = false];
+            while not done {
+                args = args + [self.parseExpression()];
+                if not self.match("PUNCT", ",") {
+                    done = true;
+                }
+            }
+        }
+        return args;
+    }
+
+    parsePrimary(self) {
+        global [t = self.current()];
+
+        # NUMBER
+        if t[0] == "NUMBER" {
+            self.advance();
+            # Determine int or float
+            global [val = t[1]];
+            global [isFloat = false];
+            # Cek ada . atau e/E
+            global [i = 0];
+            while i < len(val) {
+                global [c = val[i]];
+                if c == "." {
+                    isFloat = true;
+                }
+                if c == "e" or c == "E" {
+                    isFloat = true;
+                }
+                i = i + 1;
+            }
+            if isFloat {
+                return ast.makeNum(float(val));
+            }
+            return ast.makeNum(int(val));
+        }
+
+        # STRING
+        if t[0] == "STRING" {
+            self.advance();
+            return ast.makeStr(t[1]);
+        }
+
+        # KEYWORD: true / false / null / function (anonymous)
+        if t[0] == "KEYWORD" {
+            if t[1] == "true" {
+                self.advance();
+                return ast.makeBool(true);
+            }
+            if t[1] == "false" {
+                self.advance();
+                return ast.makeBool(false);
+            }
+            if t[1] == "null" {
+                self.advance();
+                return ast.makeNull();
+            }
+            if t[1] == "function" {
+                # Anonymous function: function(params) { body }
+                self.advance();
+                global [params = self.parseParams()];
+                global [body = self.parseBlock()];
+                return ast.makeLambda(params, body);
+            }
+        }
+
+        # IDENT
+        if t[0] == "IDENT" {
+            self.advance();
+            return ast.makeIdent(t[1]);
+        }
+
+        # ( expr )
+        if self.match("PUNCT", "(") {
+            global [expr = self.parseExpression()];
+            self.expect("PUNCT", ")");
+            return expr;
+        }
+
+        # [ list ]
+        if self.match("PUNCT", "[") {
+            global [elements = []];
+            if not self.check("PUNCT", "]") {
+                global [done = false];
+                while not done {
+                    elements = elements + [self.parseExpression()];
+                    if not self.match("PUNCT", ",") {
+                        done = true;
+                    }
+                }
+            }
+            self.expect("PUNCT", "]");
+            return ast.makeList(elements);
+        }
+
+        # { object }
+        if self.match("PUNCT", "{") {
+            global [pairs = []];
+            if not self.check("PUNCT", "}") {
+                global [done = false];
+                while not done {
+                    # key: STRING atau IDENT
+                    global [key = ""];
+                    global [keyTok = self.current()];
+                    if keyTok[0] == "STRING" {
+                        key = keyTok[1];
+                        self.advance();
+                    } elif keyTok[0] == "IDENT" {
+                        key = keyTok[1];
+                        self.advance();
+                    } else {
+                        print "Parse error: expected key in object literal";
+                        done = true;
+                        continue;
+                    }
+                    self.expect("PUNCT", ":");
+                    global [val = self.parseExpression()];
+                    pairs = pairs + [[key, val]];
+                    if not self.match("PUNCT", ",") {
+                        done = true;
+                    }
+                }
+            }
+            self.expect("PUNCT", "}");
+            return ast.makeObject(pairs);
+        }
+
+        print "Parse error: unexpected token " + t[0] + " " + t[1] + " at line " + t[2];
+        self.advance();  # skip untuk hindari infinite loop
+        return ast.makeNull();
+    }
+}
+
+# ============================================================
+# CONVENIENCE FUNCTIONS
+# ============================================================
+
+function parse(source) {
+    # Full pipeline: source string -> tokens -> AST
+    global [toks = lexer.tokenize(source)];
+    global [p = Parser(toks)];
+    return p.parseProgram();
+}
+
+function parseTokens(toks) {
+    # Token list -> AST
+    global [p = Parser(toks)];
+    return p.parseProgram();
+}

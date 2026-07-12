@@ -1,0 +1,608 @@
+# evaluator.jpx - AST evaluator (self-hosted)
+#
+# FIX v1.4.2:
+#   - Pakai STATE list sebagai mutable container (bukan global vars)
+#     karena `var = value` di JPX function hanya set local, bukan global.
+#     List adalah mutable — `STATE[idx] = val` terlihat di semua scope.
+#   - Pakai `in` operator untuk dict lookup
+#   - Fix: comparison operators tidak pakai try/catch
+#   - Fix: `is null` instead of Python `is None`
+#   - Fix: closure simulation via STATE[6] (parent env reference)
+
+[ast];
+
+# ============================================================
+# STATE (mutable list — shared across all function calls)
+# Index:
+#   0 = env (dict)
+#   1 = funcs (dict)
+#   2 = return value
+#   3 = break flag
+#   4 = continue flag
+#   5 = loop depth
+#   6 = closure parent env (dict, atau null)
+# ============================================================
+
+global [STATE = [{}, {}, null, false, false, 0, null]];
+
+function resetState() {
+    STATE = [{}, {}, null, false, false, 0, null];
+}
+
+# STATE accessors: pakai STATE[idx] langsung di seluruh code.
+# STATE[0] = env, STATE[1] = funcs, STATE[2] = return val,
+# STATE[3] = break, STATE[4] = continue, STATE[5] = loop depth,
+# STATE[6] = closure parent env
+
+# ============================================================
+# TRUTHINESS
+# ============================================================
+
+function isTruthy(val) {
+    if val == null { return false; }
+    if val == false { return false; }
+    if val == true { return true; }
+    if val == 0 { return false; }
+    if val == 0.0 { return false; }
+    if val == "" { return false; }
+    return true;
+}
+
+# ============================================================
+# MAIN ENTRY
+# ============================================================
+
+function run(tree) {
+    resetState();
+    global [body = tree[1]];
+    global [i = 0];
+    while i < len(body) {
+        execStmt(body[i]);
+        if STATE[2] != null {
+            return STATE[2];
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+# ============================================================
+# STATEMENT EXECUTION
+# ============================================================
+
+function execStmt(node) {
+    global [ntype = node[0]];
+
+    if ntype == "expr_stmt" {
+        evalExpr(node[1]);
+        return;
+    }
+
+    if ntype == "global" {
+        __gname = node[1];
+        if node[2] != null {
+            __gval = evalExpr(node[2]);
+        } else {
+            __gval = null;
+        }
+        STATE[0][__gname] = __gval;
+        return;
+    }
+
+    if ntype == "func_def" {
+        STATE[1][node[1]] = node;
+        return;
+    }
+
+    if ntype == "return" {
+        if node[1] == null {
+            STATE[2] = null;
+        } else {
+            STATE[2] = evalExpr(node[1]);
+        }
+        return;
+    }
+
+    if ntype == "if" {
+        global [cond = evalExpr(node[1])];
+        if isTruthy(cond) {
+            __body = node[2];
+        } else {
+            __body = node[3];
+        }
+        __i = 0;
+        while __i < len(__body) {
+            execStmt(__body[__i]);
+            if STATE[2] != null { return; }
+            if STATE[3] { return; }
+            if STATE[4] { return; }
+            __i = __i + 1;
+        }
+        return;
+    }
+
+    if ntype == "while" {
+        STATE[5] = STATE[5] + 1;
+        while isTruthy(evalExpr(node[1])) {
+            __body = node[2];
+            __i = 0;
+            while __i < len(__body) {
+                execStmt(__body[__i]);
+                if STATE[2] != null {
+                    STATE[5] = STATE[5] - 1;
+                    return;
+                }
+                if STATE[3] {
+                    STATE[3] = false;
+                    STATE[5] = STATE[5] - 1;
+                    return;
+                }
+                if STATE[4] {
+                    STATE[4] = false;
+                    break;
+                }
+                __i = __i + 1;
+            }
+        }
+        STATE[5] = STATE[5] - 1;
+        return;
+    }
+
+    if ntype == "for_to" {
+        __varName = node[1];
+        __startVal = evalExpr(node[2]);
+        __endVal = evalExpr(node[3]);
+        STATE[5] = STATE[5] + 1;
+        __i = __startVal;
+        while __i <= __endVal {
+            STATE[0][__varName] = __i;
+            __body = node[4];
+            __j = 0;
+            while __j < len(__body) {
+                execStmt(__body[__j]);
+                if STATE[2] != null {
+                    STATE[5] = STATE[5] - 1;
+                    return;
+                }
+                if STATE[3] {
+                    STATE[3] = false;
+                    STATE[5] = STATE[5] - 1;
+                    return;
+                }
+                if STATE[4] {
+                    STATE[4] = false;
+                    break;
+                }
+                __j = __j + 1;
+            }
+            __i = __i + 1;
+        }
+        STATE[5] = STATE[5] - 1;
+        return;
+    }
+
+    if ntype == "for_in" {
+        __varName = node[1];
+        __iterable = evalExpr(node[2]);
+        STATE[5] = STATE[5] + 1;
+        if __iterable != null {
+            __i = 0;
+            while __i < len(__iterable) {
+                STATE[0][__varName] = __iterable[__i];
+                __body = node[3];
+                __j = 0;
+                while __j < len(__body) {
+                    execStmt(__body[__j]);
+                    if STATE[2] != null {
+                        STATE[5] = STATE[5] - 1;
+                        return;
+                    }
+                    if STATE[3] {
+                        STATE[3] = false;
+                        STATE[5] = STATE[5] - 1;
+                        return;
+                    }
+                    if STATE[4] {
+                        STATE[4] = false;
+                        break;
+                    }
+                    __j = __j + 1;
+                }
+                __i = __i + 1;
+            }
+        }
+        STATE[5] = STATE[5] - 1;
+        return;
+    }
+
+    if ntype == "break" {
+        if STATE[5] > 0 {
+            STATE[3] = true;
+        }
+        return;
+    }
+
+    if ntype == "continue" {
+        if STATE[5] > 0 {
+            STATE[4] = true;
+        }
+        return;
+    }
+
+    if ntype == "import" { return; }
+
+    if ntype == "try_catch" {
+        __tryBody = node[1];
+        __i = 0;
+        while __i < len(__tryBody) {
+            execStmt(__tryBody[__i]);
+            if STATE[2] != null { return; }
+            __i = __i + 1;
+        }
+        return;
+    }
+
+    if ntype == "class_def" {
+        STATE[0][node[1]] = node;
+        return;
+    }
+}
+
+# ============================================================
+# EXPRESSION EVALUATION
+# ============================================================
+
+function evalExpr(node) {
+    if node == null { return null; }
+    global [ntype = node[0]];
+
+    if ntype == "num" { return node[1]; }
+    if ntype == "str" { return node[1]; }
+    if ntype == "bool" { return node[1]; }
+    if ntype == "null" { return null; }
+
+    # Identifier — pakai `in` operator, BUKAN try/catch
+    if ntype == "ident" {
+        global [name = node[1]];
+        # Check local env
+        if name in STATE[0] {
+            return STATE[0][name];
+        }
+        # Closure fallback: cek parent env
+        global [clo = STATE[6]];
+        if clo != null {
+            if name in clo {
+                return clo[name];
+            }
+        }
+        # Constants
+        if name == "true" { return true; }
+        if name == "false" { return false; }
+        if name == "null" { return null; }
+        # Builtins
+        if name == "len" { return "builtin:len"; }
+        if name == "int" { return "builtin:int"; }
+        if name == "str" { return "builtin:str"; }
+        if name == "print" { return "builtin:print"; }
+        if name == "type" { return "builtin:type"; }
+        if name == "ord" { return "builtin:ord"; }
+        if name == "chr" { return "builtin:chr"; }
+        return null;
+    }
+
+    # Binary op
+    if ntype == "binop" {
+        global [op = node[1]];
+        global [l = evalExpr(node[2])];
+        global [r = evalExpr(node[3])];
+        return applyBinop(op, l, r);
+    }
+
+    # Unary
+    if ntype == "unary" {
+        global [op = node[1]];
+        global [v = evalExpr(node[2])];
+        if op == "-" { return 0 - v; }
+        if op == "!" { return not isTruthy(v); }
+        if op == "not" { return not isTruthy(v); }
+        return v;
+    }
+
+    # Logical
+    if ntype == "logical" {
+        global [op = node[1]];
+        global [l = evalExpr(node[2])];
+        if op == "and" {
+            if not isTruthy(l) { return false; }
+            return isTruthy(evalExpr(node[3]));
+        }
+        if op == "or" {
+            if isTruthy(l) { return true; }
+            return isTruthy(evalExpr(node[3]));
+        }
+        return false;
+    }
+
+    # Ternary
+    if ntype == "ternary" {
+        if isTruthy(evalExpr(node[1])) {
+            return evalExpr(node[2]);
+        }
+        return evalExpr(node[3]);
+    }
+
+    # Assignment
+    if ntype == "assign" {
+        global [target = node[1]];
+        global [val = evalExpr(node[2])];
+        if target[0] == "ident" {
+            STATE[0][target[1]] = val;
+        }
+        return val;
+    }
+
+    # Function call
+    if ntype == "call" {
+        return evalCall(node);
+    }
+
+    # Member access
+    if ntype == "member" {
+        global [obj = evalExpr(node[1])];
+        global [field = node[2]];
+        if obj == null { return null; }
+        if type(obj) == "dict" {
+            if field in obj { return obj[field]; }
+        }
+        return null;
+    }
+
+    # Index access
+    if ntype == "index" {
+        global [obj = evalExpr(node[1])];
+        global [idx = evalExpr(node[2])];
+        if obj == null { return null; }
+        if idx is null { return null; }
+        if type(obj) == "list" {
+            if idx >= 0 {
+                if idx < len(obj) { return obj[idx]; }
+            }
+            return null;
+        }
+        if type(obj) == "dict" {
+            if idx in obj { return obj[idx]; }
+            return null;
+        }
+        if type(obj) == "str" {
+            if idx >= 0 {
+                if idx < len(obj) { return obj[idx]; }
+            }
+            return null;
+        }
+        return null;
+    }
+
+    # Slice
+    if ntype == "slice" {
+        global [obj = evalExpr(node[1])];
+        __start = null;
+        __end = null;
+        if node[2] != null {
+            if node[2][0] != "null" {
+                __start = evalExpr(node[2]);
+            }
+        }
+        if node[3] != null {
+            __end = evalExpr(node[3]);
+        }
+        if __start is null { __start = 0; }
+        if __end is null {
+            return obj[__start:];
+        }
+        return obj[__start:__end];
+    }
+
+    # List literal
+    if ntype == "list" {
+        global [result = []];
+        global [elems = node[1]];
+        global [i = 0];
+        while i < len(elems) {
+            result = result + [evalExpr(elems[i])];
+            i = i + 1;
+        }
+        return result;
+    }
+
+    # Object literal
+    if ntype == "object" {
+        global [result = {}];
+        global [pairs = node[1]];
+        global [i = 0];
+        while i < len(pairs) {
+            global [pair = pairs[i]];
+            result[pair[0]] = evalExpr(pair[1]);
+            i = i + 1;
+        }
+        return result;
+    }
+
+    return null;
+}
+
+# ============================================================
+# BINARY OP (NO try/catch!)
+# ============================================================
+
+function applyBinop(op, l, r) {
+    if l is null { l = 0; }
+    if r is null { r = 0; }
+
+    if op == "+" {
+        if type(l) == "str" or type(r) == "str" {
+            return str(l) + str(r);
+        }
+        if type(l) == "list" and type(r) == "list" {
+            return l + r;
+        }
+        return l + r;
+    }
+    if op == "-" { return l - r; }
+    if op == "*" { return l * r; }
+    if op == "/" {
+        if r == 0 { return 0; }
+        return l / r;
+    }
+    if op == "//" {
+        if r == 0 { return 0; }
+        return int(l / r);
+    }
+    if op == "%" {
+        if r == 0 { return 0; }
+        return l % r;
+    }
+    if op == "==" { return l == r; }
+    if op == "!=" { return l != r; }
+    if op == "<" { return l < r; }
+    if op == ">" { return l > r; }
+    if op == "<=" { return l <= r; }
+    if op == ">=" { return l >= r; }
+    # Membership: `in`
+    if op == "in" {
+        if r is null { return false; }
+        return l in r;
+    }
+    # Identity: `is` (untuk null check)
+    if op == "is" {
+        if r is null { return l is null; }
+        return l is r;
+    }
+    return null;
+}
+
+# ============================================================
+# FUNCTION CALL
+# ============================================================
+
+function evalCall(node) {
+    global [callee = node[1]];
+    global [argNodes = node[2]];
+
+    global [args = []];
+    global [i = 0];
+    while i < len(argNodes) {
+        args = args + [evalExpr(argNodes[i])];
+        i = i + 1;
+    }
+
+    if callee[0] == "ident" {
+        global [fname = callee[1]];
+
+        if fname == "print" {
+            if len(args) > 0 { print args[0]; }
+            return null;
+        }
+        if fname == "len" {
+            if len(args) > 0 {
+                if args[0] is null { return 0; }
+                return len(args[0]);
+            }
+            return 0;
+        }
+        if fname == "int" {
+            if len(args) > 0 { return int(args[0]); }
+            return 0;
+        }
+        if fname == "str" {
+            if len(args) > 0 { return str(args[0]); }
+            return "";
+        }
+        if fname == "type" {
+            if len(args) > 0 {
+                if args[0] is null { return "null"; }
+                return type(args[0]);
+            }
+            return "null";
+        }
+        if fname == "ord" {
+            if len(args) > 0 {
+                global [s = args[0]];
+                if len(s) > 0 { return ord(s[0]); }
+            }
+            return 0;
+        }
+        if fname == "chr" {
+            if len(args) > 0 { return chr(args[0]); }
+            return "";
+        }
+
+        # User function — pakai `in` operator
+        if fname in STATE[1] {
+            return callUserFunc(STATE[1][fname], args);
+        }
+
+        # Check env
+        if fname in STATE[0] {
+            global [fnVal = STATE[0][fname]];
+            if type(fnVal) == "list" {
+                if len(fnVal) > 0 {
+                    if fnVal[0] == "func_def" {
+                        return callUserFunc(fnVal, args);
+                    }
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+function callUserFunc(funcDef, args) {
+    global [params = funcDef[2]];
+    global [body = funcDef[3]];
+
+    # Save old state
+    global [oldEnv = STATE[0]];
+    global [oldReturn = STATE[2]];
+    global [oldClosure = STATE[6]];
+
+    # New env: empty dict + closure ref ke oldEnv
+    # PENTING: kita pakai STATE[0] = {} untuk set env baru.
+    # Karena STATE adalah list (mutable), perubahan terlihat di semua scope.
+    STATE[0] = {};
+    STATE[6] = oldEnv;  # closure
+
+    # Bind params
+    global [i = 0];
+    while i < len(params) {
+        if i < len(args) {
+            STATE[0][params[i]] = args[i];
+        } else {
+            STATE[0][params[i]] = null;
+        }
+        i = i + 1;
+    }
+
+    # Reset return
+    STATE[2] = null;
+
+    # Execute body
+    global [j = 0];
+    while j < len(body) {
+        execStmt(body[j]);
+        if STATE[2] != null {
+            break;
+        }
+        j = j + 1;
+    }
+
+    # Capture return
+    global [retVal = STATE[2]];
+
+    # Restore
+    STATE[0] = oldEnv;
+    STATE[2] = oldReturn;
+    STATE[6] = oldClosure;
+
+    return retVal;
+}

@@ -1,0 +1,69 @@
+# jpx/io.jpx - File I/O utilities (self-hosted, wraps fs module)
+#
+# Usage:
+#   [jpx.io];
+#   global [content = io.read("file.txt")];
+#   io.write("output.txt", "hello");
+#   io.append("log.txt", "new entry\n");
+
+[fs];
+
+function read(filename) {
+    return fs.read(filename);
+}
+
+function write(filename, content) {
+    return fs.write(filename, content);
+}
+
+function append(filename, content) {
+    global [existing = ""];
+    if fs.exists(filename) {
+        existing = fs.read(filename);
+    }
+    return fs.write(filename, existing + content);
+}
+
+function exists(path) {
+    return fs.exists(path);
+}
+
+function readLines(filename) {
+    global [content = fs.read(filename);
+    if content is null { return []; }
+    return content.split("\n");
+}
+
+function writeLines(filename, lines) {
+    global [content = ""];
+    global [i = 0];
+    while i < len(lines) {
+        if i > 0 { content = content + "\n"; }
+        content = content + str(lines[i]);
+        i = i + 1;
+    }
+    return fs.write(filename, content);
+}
+
+function copy(src, dst) {
+    global [content = fs.read(src);
+    if content is null { return false; }
+    return fs.write(dst, content);
+}
+
+function size(filename) {
+    return fs.size(filename);
+}
+
+function isDir(path) {
+    return fs.is_dir(path);
+}
+
+function isFile(path) {
+    return fs.is_file(path);
+}
+
+function listDir(path) {
+    if path is null { path = "."; }
+    return fs.listdir(path);
+}

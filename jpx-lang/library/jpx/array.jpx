@@ -1,0 +1,258 @@
+# jpx/array.jpx - Array/collection utilities (self-hosted)
+#
+# Usage:
+#   [jpx.array];
+#   print array.sort([3,1,4,1,5]);
+#   print array.reverse([1,2,3]);
+
+function push(arr, item) {
+    return arr + [item];
+}
+
+function pop(arr) {
+    if len(arr) == 0 { return arr; }
+    global [result = []];
+    global [i = 0];
+    while i < len(arr) - 1 {
+        result = result + [arr[i]];
+        i = i + 1;
+    }
+    return result;
+}
+
+function first(arr) {
+    if len(arr) == 0 { return null; }
+    return arr[0];
+}
+
+function last(arr) {
+    if len(arr) == 0 { return null; }
+    return arr[len(arr) - 1];
+}
+
+function contains(arr, item) {
+    i = 0;
+    while i < len(arr) {
+        if arr[i] == item { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+function indexOf(arr, item) {
+    i = 0;
+    while i < len(arr) {
+        if arr[i] == item { return i; }
+        i = i + 1;
+    }
+    return -1;
+}
+
+function count(arr, item) {
+    c = 0;
+    i = 0;
+    while i < len(arr) {
+        if arr[i] == item { c = c + 1; }
+        i = i + 1;
+    }
+    return c;
+}
+
+function reverse(arr) {
+    result = [];
+    i = len(arr) - 1;
+    while i >= 0 {
+        result = result + [arr[i]];
+        i = i - 1;
+    }
+    return result;
+}
+
+function sort(arr) {
+    result = [];
+    i = 0;
+    while i < len(arr) {
+        result = result + [arr[i]];
+        i = i + 1;
+    }
+    n = len(result);
+    i = 0;
+    while i < n - 1 {
+        j = 0;
+        while j < n - 1 - i {
+            if result[j] > result[j + 1] {
+                tmp = result[j];
+                result[j] = result[j + 1];
+                result[j + 1] = tmp;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+function sum(arr) {
+    total = 0;
+    i = 0;
+    while i < len(arr) {
+        total = total + arr[i];
+        i = i + 1;
+    }
+    return total;
+}
+
+function max(arr) {
+    if len(arr) == 0 { return null; }
+    m = arr[0];
+    i = 1;
+    while i < len(arr) {
+        if arr[i] > m { m = arr[i]; }
+        i = i + 1;
+    }
+    return m;
+}
+
+function min(arr) {
+    if len(arr) == 0 { return null; }
+    m = arr[0];
+    i = 1;
+    while i < len(arr) {
+        if arr[i] < m { m = arr[i]; }
+        i = i + 1;
+    }
+    return m;
+}
+
+function join(arr, glue) {
+    if glue is null { glue = ""; }
+    if len(arr) == 0 { return ""; }
+    result = str(arr[0]);
+    i = 1;
+    while i < len(arr) {
+        result = result + glue + str(arr[i]);
+        i = i + 1;
+    }
+    return result;
+}
+
+function slice(arr, start, end) {
+    if start < 0 { start = 0; }
+    if end is null { end = len(arr); }
+    if end > len(arr) { end = len(arr); }
+    result = [];
+    i = start;
+    while i < end {
+        result = result + [arr[i]];
+        i = i + 1;
+    }
+    return result;
+}
+
+function map(arr, fn) {
+    result = [];
+    i = 0;
+    while i < len(arr) {
+        f = fn;
+        result = result + [f(arr[i])];
+        i = i + 1;
+    }
+    return result;
+}
+
+function filter(arr, fn) {
+    result = [];
+    i = 0;
+    while i < len(arr) {
+        f = fn;
+        if f(arr[i]) {
+            result = result + [arr[i]];
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+function reduce(arr, initial, fn) {
+    result = initial;
+    i = 0;
+    while i < len(arr) {
+        f = fn;
+        result = f(result, arr[i]);
+        i = i + 1;
+    }
+    return result;
+}
+
+function each(arr, fn) {
+    i = 0;
+    while i < len(arr) {
+        f = fn;
+        f(arr[i]);
+        i = i + 1;
+    }
+}
+
+function range(start, end) {
+    result = [];
+    i = start;
+    while i <= end {
+        result = result + [i];
+        i = i + 1;
+    }
+    return result;
+}
+
+function concat(a, b) {
+    return a + b;
+}
+
+function flatten(arr) {
+    result = [];
+    i = 0;
+    while i < len(arr) {
+        if type(arr[i]) == "list" {
+            j = 0;
+            while j < len(arr[i]) {
+                result = result + [arr[i][j]];
+                j = j + 1;
+            }
+        } else {
+            result = result + [arr[i]];
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+function unique(arr) {
+    result = [];
+    i = 0;
+    while i < len(arr) {
+        if not contains(result, arr[i]) {
+            result = result + [arr[i]];
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+function chunk(arr, size) {
+    result = [];
+    i = 0;
+    while i < len(arr) {
+        group = [];
+        j = 0;
+        while j < size {
+            if i + j < len(arr) {
+                group = group + [arr[i + j]];
+            }
+            j = j + 1;
+        }
+        if len(group) > 0 {
+            result = result + [group];
+        }
+        i = i + size;
+    }
+    return result;
+}

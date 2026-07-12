@@ -1,0 +1,222 @@
+# jpx/choose.jpx - Multi-candidate execution with automatic selection
+#
+# Run multiple candidate functions, collect metrics, pick the best
+# based on a strategy. Sequential execution (no parallel, no isolation).
+#
+# Usage:
+#   [jpx.choose];
+#   function fast() { return "quick"; }
+#   function slow() { return "slow"; }
+#
+#   global [result = choose.choose([fast, slow], "RapidThroughput")];
+#   if result.ok {
+#       print "Winner: " + result.value;
+#       print "Time: " + result.time;
+#   }
+#
+# Strategies:
+#   "RapidThroughput" — pick fastest that succeeded (default)
+#   "MemorySaver"     — pick one with lowest memory (not yet impl)
+#   "AtTheLatest"     — pick slowest (for debugging)
+#   "MostAccurate"    — pick highest custom["accuracy"]
+#   "FirstOk"         — pick first that succeeded (stop early)
+
+# ============================================================
+# RESULT OBJECT (dict-based)
+# ============================================================
+# {
+#   "ok": bool,           — true jika setidaknya 1 kandidat berhasil
+#   "value": any,         — nilai dari pemenang
+#   "time": float,        — waktu eksekusi pemenang (detik)
+#   "ranked": [results],  — semua hasil terurut by strategy
+#   "failureReason": str, — null kalau ok, pesan error kalau semua gagal
+#   "winner": int,        — index kandidat pemenang
+# }
+
+# ============================================================
+# CHOOSE — run all candidates, pick winner
+# ============================================================
+
+function choose(candidates, strategy) {
+    if candidates is null { return makeResult(false, null, 0, [], "No candidates", -1); }
+    if len(candidates) == 0 { return makeResult(false, null, 0, [], "No candidates", -1); }
+    if strategy is null { strategy = "RapidThroughput"; }
+
+    # Run semua kandidat sequentially, collect results
+    global [results = []];
+    global [i = 0];
+    while i < len(candidates) {
+        global [cand = candidates[i]];
+        global [start = clock()];
+        global [state = [true, null, null]];  # [ok, value, error]
+
+        try {
+            state[1] = cand();
+        } catch (e) {
+            state[0] = false;
+            state[2] = e;
+        }
+
+        global [elapsed = clock() - start];
+        results = results + [{
+            "ok": state[0],
+            "value": state[1],
+            "time": elapsed,
+            "error": state[2],
+            "index": i
+        }];
+
+        # FirstOk strategy: stop di kandidat pertama yang berhasil
+        if strategy == "FirstOk" {
+            if state[0] {
+                return makeResult(true, state[1], elapsed, results, null, i);
+            }
+        }
+
+        i = i + 1;
+    }
+
+    # Filter yang berhasil
+    global [okResults = []];
+    global [j = 0];
+    while j < len(results) {
+        if results[j]["ok"] {
+            okResults = okResults + [results[j]];
+        }
+        j = j + 1;
+    }
+
+    if len(okResults) == 0 {
+        # Semua gagal
+        return makeResult(false, null, 0, results, "All candidates failed", -1);
+    }
+
+    # Sort berdasarkan strategy
+    global [ranked = sortByStrategy(okResults, strategy)];
+
+    # Pemenang = ranked[0]
+    global [winner = ranked[0]];
+    return makeResult(
+        true,
+        winner["value"],
+        winner["time"],
+        ranked,
+        null,
+        winner["index"]
+    );
+}
+
+# ============================================================
+# HELPER: buat result object
+# ============================================================
+
+function makeResult(ok, value, time, ranked, failureReason, winner) {
+    return {
+        "ok": ok,
+        "value": value,
+        "time": time,
+        "ranked": ranked,
+        "failureReason": failureReason,
+        "winner": winner
+    };
+}
+
+# ============================================================
+# HELPER: sort results by strategy
+# ============================================================
+
+function sortByStrategy(results, strategy) {
+    # Bubble sort (JPX gak punya built-in sort for dicts)
+    global [arr = copyList(results)];
+    global [n = len(arr)];
+    global [i = 0];
+    while i < n - 1 {
+        global [j = 0];
+        while j < n - 1 - i {
+            if shouldRankHigher(arr[j + 1], arr[j], strategy) {
+                # Swap
+                global [tmp = arr[j]];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = tmp;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return arr;
+}
+
+function shouldRankHigher(a, b, strategy) {
+    # Return true jika a harus ranked lebih tinggi dari b
+    if strategy == "RapidThroughput" {
+        # Tercepat = waktu terkecil
+        return a["time"] < b["time"];
+    }
+    if strategy == "AtTheLatest" {
+        # Terlambat = waktu terbesar
+        return a["time"] > b["time"];
+    }
+    if strategy == "MostAccurate" {
+        # Highest accuracy (dari custom metric, not yet impl)
+        return a["time"] < b["time"];
+    }
+    # Default: fastest
+    return a["time"] < b["time"];
+}
+
+function copyList(arr) {
+    global [result = []];
+    global [i = 0];
+    while i < len(arr) {
+        result = result + [arr[i]];
+        i = i + 1;
+    }
+    return result;
+}
+
+# ============================================================
+# CLOCK — waktu dalam detik (float)
+# ============================================================
+
+[time];
+function clock() {
+    return time.timestamp;
+}
+
+# ============================================================
+# CONVENIENCE: firstOk — stop di kandidat pertama yang berhasil
+# ============================================================
+
+function firstOk(candidates) {
+    return choose(candidates, "FirstOk");
+}
+
+# ============================================================
+# CONVENIENCE: fastest — pick fastest successful
+# ============================================================
+
+function fastest(candidates) {
+    return choose(candidates, "RapidThroughput");
+}
+
+# ============================================================
+# CONVENIENCE: all — run semua, return semua results
+# ============================================================
+
+function all(candidates) {
+    if candidates is null { return []; }
+    global [results = []];
+    global [i = 0];
+    while i < len(candidates) {
+        global [cand = candidates[i]];
+        global [state = [true, null]];
+        try {
+            state[1] = cand();
+        } catch (e) {
+            state[0] = false;
+        }
+        results = results + [{"ok": state[0], "value": state[1], "index": i}];
+        i = i + 1;
+    }
+    return results;
+}

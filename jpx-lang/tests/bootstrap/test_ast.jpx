@@ -1,0 +1,192 @@
+# test_ast.jpx - Test AST node helpers
+
+[ast];
+
+global [passed = 0];
+global [failed = 0];
+
+function expect(name, actual, expected) {
+    if actual == expected {
+        global [passed = passed + 1];
+        print "  PASS  " + name;
+    } else {
+        global [failed = failed + 1];
+        print "  FAIL  " + name + " (expected " + expected + ", got " + actual + ")";
+    }
+}
+
+print "=== EXPRESSION NODES ===";
+
+global [n = ast.makeNum(42)];
+expect("num type", ast.nodeType(n), "num");
+expect("num value", n[1], 42);
+
+global [s = ast.makeStr("hello")];
+expect("str type", ast.nodeType(s), "str");
+expect("str value", s[1], "hello");
+
+global [b = ast.makeBool(true)];
+expect("bool type", ast.nodeType(b), "bool");
+expect("bool value", b[1], true);
+
+global [nl = ast.makeNull()];
+expect("null type", ast.nodeType(nl), "null");
+
+global [id = ast.makeIdent("x")];
+expect("ident type", ast.nodeType(id), "ident");
+expect("ident name", id[1], "x");
+
+print "";
+print "=== BINARY/UNARY/LOGICAL ===";
+
+global [left = ast.makeNum(1)];
+global [right = ast.makeNum(2)];
+global [binop = ast.makeBinop("+", left, right)];
+expect("binop type", ast.nodeType(binop), "binop");
+expect("binop op", binop[1], "+");
+expect("binop left type", ast.nodeType(binop[2]), "num");
+expect("binop right type", ast.nodeType(binop[3]), "num");
+
+global [un = ast.makeUnary("-", ast.makeNum(5))];
+expect("unary type", ast.nodeType(un), "unary");
+expect("unary op", un[1], "-");
+
+global [lg = ast.makeLogical("and", left, right)];
+expect("logical type", ast.nodeType(lg), "logical");
+expect("logical op", lg[1], "and");
+
+print "";
+print "=== TERNARY/ASSIGN/CALL ===";
+
+global [tern = ast.makeTernary(left, right, n)];
+expect("ternary type", ast.nodeType(tern), "ternary");
+
+global [asn = ast.makeAssign(id, n)];
+expect("assign type", ast.nodeType(asn), "assign");
+
+global [call = ast.makeCall(ast.makeIdent("print"), [n])];
+expect("call type", ast.nodeType(call), "call");
+expect("call callee", ast.nodeType(call[1]), "ident");
+
+print "";
+print "=== MEMBER/INDEX/SLICE ===";
+
+global [mem = ast.makeMember(ast.makeIdent("obj"), "field")];
+expect("member type", ast.nodeType(mem), "member");
+expect("member field", mem[2], "field");
+
+global [idx = ast.makeIndex(ast.makeIdent("arr"), ast.makeNum(0))];
+expect("index type", ast.nodeType(idx), "index");
+
+global [sl = ast.makeSlice(ast.makeIdent("s"), ast.makeNum(1), ast.makeNum(5))];
+expect("slice type", ast.nodeType(sl), "slice");
+
+print "";
+print "=== LIST/OBJECT/LAMBDA ===";
+
+global [lst = ast.makeList([ast.makeNum(1), ast.makeNum(2), ast.makeNum(3)])];
+expect("list type", ast.nodeType(lst), "list");
+expect("list elem count", len(lst[1]), 3);
+
+global [obj = ast.makeObject([["name", ast.makeStr("Alice")], ["age", ast.makeNum(30)]])];
+expect("object type", ast.nodeType(obj), "object");
+expect("object pair count", len(obj[1]), 2);
+
+global [lam = ast.makeLambda(["x", "y"], [ast.makeReturn(ast.makeBinop("+", ast.makeIdent("x"), ast.makeIdent("y")))])];
+expect("lambda type", ast.nodeType(lam), "lambda");
+expect("lambda params", len(lam[1]), 2);
+
+print "";
+print "=== STATEMENT NODES ===";
+
+global [prog = ast.makeProgram([ast.makeExprStmt(n)])];
+expect("program type", ast.nodeType(prog), "program");
+expect("program body count", len(prog[1]), 1);
+
+global [es = ast.makeExprStmt(n)];
+expect("expr_stmt type", ast.nodeType(es), "expr_stmt");
+
+global [fd = ast.makeFuncDef("add", ["a", "b"], [ast.makeReturn(ast.makeBinop("+", ast.makeIdent("a"), ast.makeIdent("b")))])];
+expect("func_def type", ast.nodeType(fd), "func_def");
+expect("func_def name", fd[1], "add");
+expect("func_def params", len(fd[2]), 2);
+
+global [ret = ast.makeReturn(n)];
+expect("return type", ast.nodeType(ret), "return");
+
+global [ifn = ast.makeIf(ast.makeBinop(">", ast.makeIdent("x"), ast.makeNum(0)), [es], [])];
+expect("if type", ast.nodeType(ifn), "if");
+
+global [wh = ast.makeWhile(ast.makeBinop("<", ast.makeIdent("i"), ast.makeNum(10)), [es])];
+expect("while type", ast.nodeType(wh), "while");
+
+global [ft = ast.makeForTo("i", ast.makeNum(1), ast.makeNum(10), [es])];
+expect("for_to type", ast.nodeType(ft), "for_to");
+expect("for_to var", ft[1], "i");
+
+global [fi = ast.makeForIn("item", ast.makeIdent("arr"), [es])];
+expect("for_in type", ast.nodeType(fi), "for_in");
+expect("for_in var", fi[1], "item");
+
+global [br = ast.makeBreak()];
+expect("break type", ast.nodeType(br), "break");
+
+global [co = ast.makeContinue()];
+expect("continue type", ast.nodeType(co), "continue");
+
+global [tc = ast.makeTryCatch([es], "e", [es])];
+expect("try_catch type", ast.nodeType(tc), "try_catch");
+expect("try_catch param", tc[2], "e");
+
+global [g = ast.makeGlobal("x", n)];
+expect("global type", ast.nodeType(g), "global");
+expect("global name", g[1], "x");
+
+global [imp = ast.makeImport("string")];
+expect("import type", ast.nodeType(imp), "import");
+expect("import module", imp[1], "string");
+
+global [cd = ast.makeClassDef("Point", null, {})];
+expect("class_def type", ast.nodeType(cd), "class_def");
+expect("class_def name", cd[1], "Point");
+
+print "";
+print "=== PRETTY PRINTER ===";
+
+# Build simple AST: 1 + 2 * 3
+global [mulNode = ast.makeBinop("*", ast.makeNum(2), ast.makeNum(3))];
+global [addNode = ast.makeBinop("+", ast.makeNum(1), mulNode)];
+
+print "AST for '1 + 2 * 3':";
+print ast.dumpString(addNode);
+print "";
+
+# Build function def AST
+global [funcNode = ast.makeFuncDef("add", ["a", "b"], [
+    ast.makeReturn(ast.makeBinop("+", ast.makeIdent("a"), ast.makeIdent("b")))
+])];
+
+print "AST for function add(a, b) { return a + b; }:";
+print ast.dumpString(funcNode);
+print "";
+
+# Build if AST
+global [ifNode = ast.makeIf(
+    ast.makeBinop(">", ast.makeIdent("x"), ast.makeNum(0)),
+    [ast.makeExprStmt(ast.makeCall(ast.makeIdent("print"), [ast.makeStr("positive")]))],
+    [ast.makeExprStmt(ast.makeCall(ast.makeIdent("print"), [ast.makeStr("non-positive")]))]
+)];
+
+print "AST for if (x > 0) { print 'positive'; } else { print 'non-positive'; }:";
+print ast.dumpString(ifNode);
+
+print "";
+print "=== TOTAL ===";
+print "Passed: " + passed;
+print "Failed: " + failed;
+
+if failed == 0 {
+    print "ALL TESTS PASSED";
+} else {
+    print "SOME TESTS FAILED";
+}

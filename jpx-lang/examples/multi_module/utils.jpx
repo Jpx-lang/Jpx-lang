@@ -1,0 +1,48 @@
+# utils.jpx - Module utility sederhana (ditulis dalam JPX)
+# Akan di-import oleh main.jpx
+
+# Function untuk format angka dengan ribuan separator
+function formatNumber(n) {
+    global [s = str(n)];
+    global [result = ""];
+    global [count = 0];
+    global [i = len(s) - 1];
+    while i >= 0 {
+        if count == 3 {
+            global [result = "." + result];
+            global [count = 0];
+        }
+        global [result = s[i] + result];
+        global [count = count + 1];
+        global [i = i - 1];
+    }
+    return result;
+}
+
+# Function cek apakah angka genap
+function isEven(n) {
+    if n % 2 == 0 {
+        return true;
+    }
+    return false;
+}
+
+# Function cek apakah angka ganjil
+function isOdd(n) {
+    if n % 2 == 0 {
+        return false;
+    }
+    return true;
+}
+
+# Function untuk format waktu sederhana (detik -> "Xm Ys")
+function formatTime(seconds) {
+    global [m = int(seconds / 60)];
+    global [s = int(seconds % 60)];
+    global [result = str(m) + "m " + str(s) + "s"];
+    return result;
+}
+
+# Constant
+global [VERSION = "1.0"];
+global [AUTHOR = "JPX Demo"];

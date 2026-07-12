@@ -1,0 +1,273 @@
+# test_parser.jpx - Test parser.jpx (self-hosted)
+
+[tokens];
+[lexer];
+[ast];
+[parser];
+
+global [passed = 0];
+global [failed = 0];
+
+function expect(name, actual, expected) {
+    if actual == expected {
+        global [passed = passed + 1];
+        print "  PASS  " + name;
+    } else {
+        global [failed = failed + 1];
+        print "  FAIL  " + name + " (expected " + expected + ", got " + actual + ")";
+    }
+}
+
+function expectNode(name, node, expectedType) {
+    if node == null {
+        global [failed = failed + 1];
+        print "  FAIL  " + name + " (got null node)";
+        return;
+    }
+    if ast.nodeType(node) == expectedType {
+        global [passed = passed + 1];
+        print "  PASS  " + name;
+    } else {
+        global [failed = failed + 1];
+        print "  FAIL  " + name + " (expected " + expectedType + ", got " + ast.nodeType(node) + ")";
+    }
+}
+
+print "=== LITERAL EXPRESSIONS ===";
+
+global [tree1 = parser.parse("42;")];
+expectNode("int literal", tree1[1][0][1], "num");
+
+global [tree2 = parser.parse("\"hello\";")];
+expectNode("string literal", tree2[1][0][1], "str");
+
+global [tree3 = parser.parse("true;")];
+expectNode("bool literal", tree3[1][0][1], "bool");
+
+global [tree4 = parser.parse("null;")];
+expectNode("null literal", tree4[1][0][1], "null");
+
+global [tree5 = parser.parse("x;")];
+expectNode("identifier", tree5[1][0][1], "ident");
+
+print "";
+print "=== ARITHMETIC ===";
+
+# 1 + 2 * 3 -> BinOp(+, Num(1), BinOp(*, Num(2), Num(3)))
+global [tree6 = parser.parse("1 + 2 * 3;")];
+global [expr6 = tree6[1][0][1]];
+expectNode("top level +", expr6, "binop");
+expect("top op is +", expr6[1], "+");
+expectNode("right is * (precedence)", expr6[3], "binop");
+expect("right op is *", expr6[3][1], "*");
+
+# (1 + 2) * 3 -> BinOp(*, BinOp(+, Num(1), Num(2)), Num(3))
+global [tree7 = parser.parse("(1 + 2) * 3;")];
+global [expr7 = tree7[1][0][1]];
+expectNode("top level *", expr7, "binop");
+expect("top op is *", expr7[1], "*");
+expectNode("left is + (paren overrides)", expr7[2], "binop");
+
+# 10 - 3 - 2 (left assoc)
+global [tree8 = parser.parse("10 - 3 - 2;")];
+global [expr8 = tree8[1][0][1]];
+expectNode("top level -", expr8, "binop");
+expect("top op is -", expr8[1], "-");
+expectNode("left is - (left assoc)", expr8[2], "binop");
+
+# 100 / 4
+global [tree9 = parser.parse("100 / 4;")];
+expectNode("division", tree9[1][0][1], "binop");
+expect("div op is /", tree9[1][0][1][1], "/");
+
+# 17 % 5
+global [tree10 = parser.parse("17 % 5;")];
+expectNode("modulo", tree10[1][0][1], "binop");
+expect("mod op is %", tree10[1][0][1][1], "%");
+
+# 17 // 5
+global [tree11 = parser.parse("17 // 5;")];
+expectNode("int div", tree11[1][0][1], "binop");
+expect("intdiv op is //", tree11[1][0][1][1], "//");
+
+print "";
+print "=== UNARY ===";
+
+global [tree12 = parser.parse("-5;")];
+expectNode("unary minus", tree12[1][0][1], "unary");
+expect("unary op is -", tree12[1][0][1][1], "-");
+
+global [tree13 = parser.parse("not true;")];
+expectNode("logical not", tree13[1][0][1], "unary");
+expect("not op is not", tree13[1][0][1][1], "not");
+
+print "";
+print "=== COMPARISON & LOGICAL ===";
+
+global [tree14 = parser.parse("5 == 5;")];
+expectNode("equality ==", tree14[1][0][1], "binop");
+expect("eq op ==", tree14[1][0][1][1], "==");
+
+global [tree15 = parser.parse("a < b;")];
+expectNode("less than", tree15[1][0][1], "binop");
+
+global [tree16 = parser.parse("a and b;")];
+expectNode("logical and", tree16[1][0][1], "logical");
+expect("and op", tree16[1][0][1][1], "and");
+
+global [tree17 = parser.parse("a or b;")];
+expectNode("logical or", tree17[1][0][1], "logical");
+expect("or op", tree17[1][0][1][1], "or");
+
+print "";
+print "=== ASSIGNMENT ===";
+
+global [tree18 = parser.parse("x = 5;")];
+expectNode("assignment", tree18[1][0][1], "assign");
+
+global [tree19 = parser.parse("x, y = 1, 2;")];
+# Multiple assignment belum didukung full — cek minimal tidak crash
+print "  (info) multiple assignment parsed";
+
+print "";
+print "=== FUNCTION CALL ===";
+
+global [tree20 = parser.parse("print(\"hello\");")];
+expectNode("function call", tree20[1][0][1], "call");
+
+global [tree21 = parser.parse("add(3, 4);")];
+expectNode("call with args", tree21[1][0][1], "call");
+
+global [tree22 = parser.parse("obj.method(x);")];
+expectNode("method call", tree22[1][0][1], "call");
+expectNode("method callee is member", tree22[1][0][1][1], "member");
+
+print "";
+print "=== MEMBER & INDEX ACCESS ===";
+
+global [tree23 = parser.parse("obj.field;")];
+expectNode("member access", tree23[1][0][1], "member");
+
+global [tree24 = parser.parse("arr[0];")];
+expectNode("index access", tree24[1][0][1], "index");
+
+global [tree25 = parser.parse("matrix[0][1];")];
+expectNode("nested index", tree25[1][0][1], "index");
+
+global [tree26 = parser.parse("s[1:5];")];
+expectNode("slice", tree26[1][0][1], "slice");
+
+print "";
+print "=== LIST & OBJECT LITERAL ===";
+
+global [tree27 = parser.parse("[1, 2, 3];")];
+expectNode("list literal", tree27[1][0][1], "list");
+expect("list 3 elements", len(tree27[1][0][1][1]), 3);
+
+global [objSrc = "{\"name\": \"Alice\"};"];
+global [tree28 = parser.parse(objSrc)];
+expectNode("object literal", tree28[1][0][1], "object");
+expect("object 1 pair", len(tree28[1][0][1][1]), 1);
+
+print "";
+print "=== TERNARY ===";
+
+global [tree29 = parser.parse("x > 0 ? 1 : -1;")];
+expectNode("ternary", tree29[1][0][1], "ternary");
+
+print "";
+print "=== STATEMENTS ===";
+
+# Function definition
+global [tree30 = parser.parse("function add(a, b) { return a + b; }")];
+expectNode("func_def", tree30[1][0], "func_def");
+expect("func name", tree30[1][0][1], "add");
+expect("func 2 params", len(tree30[1][0][2]), 2);
+
+# If-else
+global [tree31 = parser.parse("if x > 0 { print \"pos\"; } else { print \"neg\"; }")];
+expectNode("if statement", tree31[1][0], "if");
+
+# While
+global [tree32 = parser.parse("while x < 10 { x = x + 1; }")];
+expectNode("while statement", tree32[1][0], "while");
+
+# For-to
+global [tree33 = parser.parse("for i = 1 to 10 { print i; }")];
+expectNode("for-to", tree33[1][0], "for_to");
+
+# For-in
+global [tree34 = parser.parse("for item in arr { print item; }")];
+expectNode("for-in", tree34[1][0], "for_in");
+
+# Break & Continue
+global [tree35 = parser.parse("break;")];
+expectNode("break", tree35[1][0], "break");
+
+global [tree36 = parser.parse("continue;")];
+expectNode("continue", tree36[1][0], "continue");
+
+# Try-catch
+global [tree37 = parser.parse("try { foo(); } catch (e) { print e; }")];
+expectNode("try-catch", tree37[1][0], "try_catch");
+expect("catch param", tree37[1][0][2], "e");
+
+# Global
+global [tree38 = parser.parse("global [x = 5];")];
+expectNode("global", tree38[1][0], "global");
+expect("global name", tree38[1][0][1], "x");
+
+# Import
+global [tree39 = parser.parse("[string];")];
+expectNode("import", tree39[1][0], "import");
+expect("import module", tree39[1][0][1], "string");
+
+# Import with attribute
+global [tree40 = parser.parse("[utils.formatNumber];")];
+expectNode("import attr", tree40[1][0], "import");
+expect("import attr name", tree40[1][0][1], "utils.formatNumber");
+
+print "";
+print "=== CLASS DEFINITION ===";
+
+global [tree41 = parser.parse("class Point { __init__(self, x, y) { self.x = x; } distance(self) { return 0; } }")];
+expectNode("class_def", tree41[1][0], "class_def");
+expect("class name", tree41[1][0][1], "Point");
+
+print "";
+print "=== FULL PROGRAM ===";
+
+global [src = "function fib(n) { if n < 2 { return n; } return fib(n - 1) + fib(n - 2); } print fib(10);"];
+global [tree42 = parser.parse(src)];
+expectNode("program", tree42, "program");
+expect("program 3 statements", len(tree42[1]), 3);
+expectNode("first is func_def", tree42[1][0], "func_def");
+expectNode("second is expr_stmt", tree42[1][1], "expr_stmt");
+
+print "";
+print "=== DUMP AST ===";
+
+print "Source: 1 + 2 * 3";
+global [tree43 = parser.parse("1 + 2 * 3;")];
+print ast.dumpString(tree43);
+print "";
+
+print "Source: function add(a, b) { return a + b; }";
+global [tree44 = parser.parse("function add(a, b) { return a + b; }")];
+print ast.dumpString(tree44);
+print "";
+
+print "Source: if x > 0 { print \"pos\"; } else { print \"neg\"; }";
+global [tree45 = parser.parse("if x > 0 { print \"pos\"; } else { print \"neg\"; }")];
+print ast.dumpString(tree45);
+
+print "";
+print "=== TOTAL ===";
+print "Passed: " + passed;
+print "Failed: " + failed;
+
+if failed == 0 {
+    print "ALL TESTS PASSED";
+} else {
+    print "SOME TESTS FAILED";
+}

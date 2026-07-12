@@ -1,0 +1,196 @@
+# test_evaluator.jpx - Test evaluator.jpx (self-hosted)
+#
+# Test ini di-run dengan --jpx-interpreter flag.
+# Cara run:
+#   python3 jpx.py --jpx-interpreter bootstrap/test_evaluator.jpx
+
+global [passed = 0];
+global [failed = 0];
+
+function ok(name, actual, expected) {
+    if actual == expected {
+        passed = passed + 1;
+        print "  PASS  " + name;
+    } else {
+        failed = failed + 1;
+        print "  FAIL  " + name + " (expected " + expected + ", got " + actual + ")";
+    }
+}
+
+print "=== LITERALS ===";
+ok("int literal", 42, 42);
+ok("string literal", "hello", "hello");
+ok("bool true", true, true);
+ok("bool false", false, false);
+
+print "";
+print "=== ARITHMETIC ===";
+ok("addition", 3 + 4, 7);
+ok("subtraction", 10 - 3, 7.0);
+ok("multiplication", 6 * 7, 42.0);
+ok("division", 10 / 2, 5.0);
+ok("integer div", 17 // 5, 3);
+ok("modulo", 17 % 5, 2);
+ok("precedence", 1 + 2 * 3, 7);
+ok("paren override", (1 + 2) * 3, 9.0);
+
+print "";
+print "=== COMPARISON ===";
+ok("equal", 5 == 5, true);
+ok("not equal", 5 != 6, true);
+ok("less than", 3 < 5, true);
+ok("greater than", 5 > 3, true);
+ok("less equal", 5 <= 5, true);
+ok("greater equal", 5 >= 5, true);
+
+print "";
+print "=== MEMBERSHIP (in) ===";
+ok("in list true", 3 in [1, 2, 3], true);
+ok("in list false", 99 in [1, 2, 3], false);
+ok("in string true", "hel" in "hello", true);
+ok("in string false", "xyz" in "hello", false);
+
+print "";
+print "=== IDENTITY (is) ===";
+global [n = null];
+ok("is null true", n is null, true);
+global [y = 10];
+ok("is null false", y is null, false);
+
+print "";
+print "=== LOGICAL ===";
+ok("and true", true and true, true);
+ok("and false", true and false, false);
+ok("or true", true or false, true);
+ok("or false", false or false, false);
+ok("not true", not true, false);
+ok("not false", not false, true);
+
+print "";
+print "=== VARIABLES ===";
+global [x = 10];
+global [y = 20];
+ok("x", x, 10);
+ok("y", y, 20);
+ok("x + y", x + y, 30);
+ok("x < y", x < y, true);
+
+print "";
+print "=== FUNCTIONS ===";
+function add(a, b) {
+    return a + b;
+}
+ok("add(3,4)", add(3, 4), 7);
+ok("add(10,20)", add(10, 20), 30);
+
+function double(n) {
+    return n * 2;
+}
+ok("double(5)", double(5), 10.0);
+
+function isEven(n) {
+    if n % 2 == 0 {
+        return true;
+    }
+    return false;
+}
+ok("isEven(4)", isEven(4), true);
+ok("isEven(7)", isEven(7), false);
+
+print "";
+print "=== CLOSURE ===";
+global [PI = 3];
+function areaCircle(r) {
+    return PI * r * r;
+}
+ok("areaCircle(2)", areaCircle(2), 12);
+
+print "";
+print "=== CONTROL FLOW ===";
+global [sum = 0];
+for i = 1 to 10 {
+    sum = sum + i;
+}
+ok("sum 1..10", sum, 55);
+
+global [count = 0];
+global [j = 0];
+while j < 5 {
+    count = count + 1;
+    j = j + 1;
+}
+ok("while count", count, 5);
+
+# if/elif/else
+function grade(score) {
+    if score >= 90 {
+        return "A";
+    } elif score >= 80 {
+        return "B";
+    } elif score >= 70 {
+        return "C";
+    } else {
+        return "F";
+    }
+}
+ok("grade 95", grade(95), "A");
+ok("grade 85", grade(85), "B");
+ok("grade 75", grade(75), "C");
+ok("grade 55", grade(55), "F");
+
+print "";
+print "=== LISTS ===";
+global [arr = [10, 20, 30, 40, 50]];
+ok("arr[0]", arr[0], 10);
+ok("arr[4]", arr[4], 50);
+ok("len(arr)", len(arr), 5);
+
+print "";
+print "=== OBJECTS ===";
+global [obj = {"name": "Alice", "age": 30}];
+ok("obj.name", obj.name, "Alice");
+ok("obj.age", obj.age, 30);
+
+print "";
+print "=== STRING CONCAT ===";
+ok("concat", "Hello" + " " + "World", "Hello World");
+ok("num to str", "x = " + 42, "x = 42");
+
+print "";
+print "=== TERNARY ===";
+ok("ternary true", 5 > 3 ? "yes" : "no", "yes");
+ok("ternary false", 5 < 3 ? "yes" : "no", "no");
+
+print "";
+print "=== BUILTINS ===";
+ok("len string", len("hello"), 5);
+ok("len list", len([1, 2, 3]), 3);
+ok("int convert", int("42"), 42);
+ok("str convert", str(123), "123");
+ok("type int", type(42), "int");
+ok("type str", type("hello"), "str");
+ok("type list", type([1, 2]), "list");
+ok("ord", ord("A"), 65);
+ok("chr", chr(66), "B");
+
+print "";
+print "=== BREAK ===";
+global [b = 0];
+for i = 1 to 100 {
+    if i == 5 {
+        break;
+    }
+    b = b + 1;
+}
+ok("break at 5", b, 4);
+
+print "";
+print "=== TOTAL ===";
+print "Passed: " + passed;
+print "Failed: " + failed;
+
+if failed == 0 {
+    print "ALL TESTS PASSED";
+} else {
+    print "SOME TESTS FAILED";
+}

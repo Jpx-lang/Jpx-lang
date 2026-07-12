@@ -1,0 +1,90 @@
+# demo_game.jpx - Game tebak angka sederhana pakai library .jpx
+# Memakai: mathx (random via isPrime ga ada, kita pakai system.time seed)
+#          array (untuk history tebakan)
+
+[array];
+[mathx];
+
+print "========================================";
+print "   GAME TEBAK ANGKA (1-100)             ";
+print "========================================";
+print "";
+
+# Generate angka acak pakai time-based pseudo random
+# (JPX belum punya random bawaan, jadi pakai timestamp di modulo 100)
+[time];
+global [seed = time.timestamp];
+global [target = (seed * 1103515245 / 65536) % 100];
+global [target = int(target)];
+if target < 0 {
+    global [target = 0 - target];
+}
+if target == 0 {
+    global [target = 42];
+}
+# Pastikan 1-100
+global [target = target + 1];
+
+# History tebakan
+global [history = []];
+
+# Simulasi tebakan (karena gak bisa input interaktif di test)
+# Asumsikan tebakan: 50, 25, 75, 60, 65, 62, 63
+global [tebakan = [50, 25, 75, 60, 65, 62, 63]];
+global [attempt = 0];
+global [menang = false];
+
+print "Target (hidden): " + target;
+print "";
+
+while attempt < len(tebakan) {
+    global [guess = tebakan[attempt]];
+    global [history = array.push(history, guess)];
+    global [attempt = attempt + 1];
+
+    print "Tebakan #" + attempt + ": " + guess;
+
+    if guess == target {
+        print "  >>> BENAR! Anda menang dalam " + attempt + " tebakan!";
+        global [menang = true];
+        break;
+    } else {
+        if guess < target {
+            print "  >>> Terlalu kecil";
+        } else {
+            print "  >>> Terlalu besar";
+        }
+    }
+    print "";
+}
+
+print "";
+print "=== HASIL ===";
+if menang {
+    print "Anda menang!";
+} else {
+    print "Anda kalah. Target: " + target;
+}
+print "Jumlah tebakan: " + len(history);
+print "History: " + array.join(history, " -> ");
+print "";
+
+print "=== STATISTIK PERMAINAN ===";
+print "Tebakan tertinggi: " + array.max(history);
+print "Tebakan terendah: " + array.min(history);
+print "Rata-rata tebakan: " + mathx.mean(history);
+print "";
+
+# Hitung jarak tiap tebakan dari target
+print "Jarak dari target:";
+global [i = 0];
+while i < len(history) {
+    global [jarak = history[i] - target];
+    if jarak < 0 {
+        global [jarak = 0 - jarak];
+    }
+    print "  Tebakan " + history[i] + " -> jarak " + jarak;
+    global [i = i + 1];
+}
+print "";
+print "Done!";

@@ -1,0 +1,120 @@
+# test_showcase.jpx - Showcase semua fitur yang sekarang work
+# Test end-to-end mengkombinasikan semua perbaikan + library
+
+[array];
+[mathx];
+[print];
+[time];
+
+print "==========================================";
+print "   JPX INTERPRETER - FULL SHOWCASE        ";
+print "==========================================";
+print "";
+
+print "=== 1. ARITMETIKA ===";
+print "3 + 4 = " + (3 + 4);
+print "10 - 3 = " + (10 - 3);
+print "6 * 7 = " + (6 * 7);
+print "17 % 5 = " + (17 % 5);
+print "(2 + 3) * 4 = " + ((2 + 3) * 4);
+print "";
+
+print "=== 2. COMPARISON ===";
+print "5 == 5: " + (5 == 5);
+print "5 != 6: " + (5 != 6);
+print "3 < 5: " + (3 < 5);
+print "10 >= 10: " + (10 >= 10);
+print "";
+
+print "=== 3. STRING OPERATIONS ===";
+global [s = "Hello, JPX!"];
+print "string: " + s;
+print "s[0]: " + s[0];
+print "s[7:]: " + s[7:];
+print "s[:5]: " + s[:5];
+print "len: " + len(s);
+print "ord('A'): " + ord("A");
+print "chr(66): " + chr(66);
+print "";
+
+print "=== 4. FUNCTIONS & CLOSURES ===";
+global [PI = 3.14];
+function circle_area(r) {
+    return PI * r * r;
+}
+print "area(2) = " + circle_area(2);
+
+function makeMultiplier(factor) {
+    function multiply(x) {
+        return x * factor;
+    }
+    return multiply;
+}
+global [double = makeMultiplier(2)];
+global [triple = makeMultiplier(3)];
+print "double(5) = " + double(5);
+print "triple(5) = " + triple(5);
+print "";
+
+print "=== 5. CONTROL FLOW ===";
+for i = 1 to 5 {
+    print "  iter " + i;
+}
+
+global [n = 0];
+print "FizzBuzz:";
+for i = 1 to 15 {
+    if i % 15 == 0 {
+        print "  FizzBuzz";
+    } else {
+        if i % 3 == 0 {
+            print "  Fizz";
+        } else {
+            if i % 5 == 0 {
+                print "  Buzz";
+            } else {
+                print "  " + i;
+            }
+        }
+    }
+}
+print "";
+
+print "=== 6. LIST & ARRAY LIBRARY ===";
+global [nums = [5, 2, 8, 1, 9, 3, 7, 4, 6]];
+print "original: " + array.join(nums, ", ");
+print "sorted:   " + array.join(array.sort(nums), ", ");
+print "reversed: " + array.join(array.reverse(nums), ", ");
+print "sum:      " + array.sum(nums);
+print "max:      " + array.max(nums);
+print "min:      " + array.min(nums);
+print "contains 7: " + array.contains(nums, 7);
+print "";
+
+print "=== 7. MATH EXTENDED LIBRARY ===";
+print "fib(10) = " + mathx.fib(10);
+print "factorial(6) = " + mathx.factorial(6);
+print "isPrime(97): " + mathx.isPrime(97);
+print "isPrime(100): " + mathx.isPrime(100);
+print "gcd(48, 36) = " + mathx.gcd(48, 36);
+print "power(2, 16) = " + mathx.power(2, 16);
+print "";
+
+print "=== 8. TRY-CATCH ===";
+try {
+    print undefined_var;
+} catch (e) {
+    print "Caught: " + e;
+}
+print "";
+
+print "=== 9. TYPE CONVERSION ===";
+print "int('42'): " + int("42");
+print "str(123): " + str(123);
+print "type([1,2]): " + type([1,2]);
+print "type(\"x\"): " + type("x");
+print "";
+
+print "==========================================";
+print "   ALL FEATURES WORKING!                 ";
+print "==========================================";

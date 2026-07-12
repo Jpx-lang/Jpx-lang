@@ -1,0 +1,27 @@
+# Try-catch test
+[json];
+[string];
+
+# json encode/decode roundtrip
+global [data = {"name": "Alice", "age": 30}];
+global [encoded = json.encode(data)];
+print "Encoded: " + encoded;
+
+global [decoded = json.decode(encoded)];
+print "Decoded name: " + decoded.name;
+
+# String library
+global [upper = string.upper("hello world")];
+print "Upper: " + upper;
+
+global [md5 = string.md5("test")];
+print "MD5: " + md5;
+
+# Try-catch
+try {
+    global [bad = undefined_var + 1];
+} catch (e) {
+    print "Caught error: " + e;
+}
+
+print "Done!";

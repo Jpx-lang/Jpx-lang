@@ -1,0 +1,109 @@
+# jpx/type.jpx - Type checking and conversion utilities (self-hosted)
+#
+# Usage:
+#   [jpx.type];
+#   print type.isNull(x);
+#   print type.isString(x);
+#   print type.coerce("123", "int");
+
+function isNull(val) {
+    return val is null;
+}
+
+function isNotNull(val) {
+    return not (val is null);
+}
+
+function isString(val) {
+    if val is null { return false; }
+    return type(val) == "str";
+}
+
+function isInt(val) {
+    if val is null { return false; }
+    return type(val) == "int";
+}
+
+function isFloat(val) {
+    if val is null { return false; }
+    return type(val) == "float";
+}
+
+function isNumber(val) {
+    if val is null { return false; }
+    if type(val) == "int" { return true; }
+    if type(val) == "float" { return true; }
+    return false;
+}
+
+function isBool(val) {
+    if val is null { return false; }
+    return type(val) == "bool";
+}
+
+function isList(val) {
+    if val is null { return false; }
+    return type(val) == "list";
+}
+
+function isDict(val) {
+    if val is null { return false; }
+    return type(val) == "dict";
+}
+
+function isFunction(val) {
+    if val is null { return false; }
+    return type(val) == "function" or type(val) == "JPXFunction";
+}
+
+function isCallable(val) {
+    if val is null { return false; }
+    global [t = type(val);
+    if t == "function" { return true; }
+    if t == "JPXFunction" { return true; }
+    if t == "builtin_function_or_method" { return true; }
+    if t == "LambdaType" { return true; }
+    if t == "method" { return true; }
+    return false;
+}
+
+function isTruthy(val) {
+    if val is null { return false; }
+    if val == false { return false; }
+    if val == 0 { return false; }
+    if val == "" { return false; }
+    return true;
+}
+
+function coerce(val, targetType) {
+    if targetType == "int" {
+        if type(val) == "str" { return int(val); }
+        return int(val);
+    }
+    if targetType == "float" {
+        if type(val) == "str" { return float(val); }
+        return float(val);
+    }
+    if targetType == "str" {
+        return str(val);
+    }
+    if targetType == "bool" {
+        return isTruthy(val);
+    }
+    return val;
+}
+
+function default(val, defaultVal) {
+    if val is null { return defaultVal; }
+    return val;
+}
+
+function toString(val) {
+    if val is null { return "null"; }
+    return str(val);
+}
+
+function name(val) {
+    if val is null { return "null"; }
+    return type(val);
+}

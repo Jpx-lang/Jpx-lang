@@ -1,0 +1,378 @@
+# jpx-osint.jpx - JPX OSINT Tool
+#
+# Tool untuk cek status URL secara batch. Mirip Sherlock tapi untuk URL checking.
+# Baca list URL dari file, cek satu per satu, report status.
+#
+# Usage:
+#   python3 jpx.py examples/JpxOsint/jpx-osint.jpx
+#
+# atau dengan argumen:
+#   python3 jpx.py examples/JpxOsint/jpx-osint.jpx path/to/list.txt
+
+# ============================================================
+# IMPORTS
+# ============================================================
+
+[requests];
+[fs];
+[time];
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+global [DEFAULT_LIST = "list-url.txt"];
+global [DEFAULT_TIMEOUT = 10];
+global [USER_AGENT = "JpxOsint/1.0 (JPX Language)"];
+
+# ============================================================
+# UTILITY FUNCTIONS
+# ============================================================
+
+function banner() {
+    print "==========================================";
+    print "   JPX-OSINT v1.0                         ";
+    print "   URL Reconnaissance Tool                ";
+    print "==========================================";
+    print "";
+}
+
+function usage() {
+    print "Usage:";
+    print "  jpx jpx-osint.jpx [list_file]";
+    print "";
+    print "Default list file: list-url.txt";
+    print "";
+    print "Output:";
+    print "  [200] https://example.com      (200, 123ms)";
+    print "  [301] https://example.org      (redirect, 89ms)";
+    print "  [ERR] https://bad.url          (timeout)";
+}
+
+# Status color tag (sederhana, tanpa ANSI — pakai label)
+function statusTag(code) {
+    # 2xx = OK
+    if code >= 200 {
+        if code < 300 {
+            return "OK";
+        }
+    }
+    # 3xx = REDIRECT
+    if code >= 300 {
+        if code < 400 {
+            return "REDIRECT";
+        }
+    }
+    # 4xx = CLIENT_ERR
+    if code >= 400 {
+        if code < 500 {
+            return "CLIENT_ERR";
+        }
+    }
+    # 5xx = SERVER_ERR
+    if code >= 500 {
+        if code < 600 {
+            return "SERVER_ERR";
+        }
+    }
+    # 0 = ERROR
+    return "ERROR";
+}
+
+function pad(s, width) {
+    # Pad string ke width tertentu (left align)
+    global [result = s];
+    global [i = len(s)];
+    while i < width {
+        result = result + " ";
+        i = i + 1;
+    }
+    return result;
+}
+
+# ============================================================
+# FILE READER
+# ============================================================
+
+function readUrlList(filename) {
+    # Baca file, return list of URL (skip komentar & baris kosong)
+    print "Reading URL list: " + filename;
+    global [content = fs.read(filename)];
+    if content == null {
+        print "ERROR: Cannot read file " + filename;
+        return [];
+    }
+    if content == "" {
+        print "ERROR: File is empty";
+        return [];
+    }
+
+    global [urls = []];
+    global [lines = content.split("\n")];
+    global [i = 0];
+    while i < len(lines) {
+        global [line = lines[i].strip()];
+        # Skip empty & comment
+        if len(line) > 0 {
+            if line[0] != "#" {
+                urls = urls + [line];
+            }
+        }
+        i = i + 1;
+    }
+
+    print "Found " + len(urls) + " URLs to check";
+    print "";
+    return urls;
+}
+
+# ============================================================
+# URL CHECKER
+# ============================================================
+
+class UrlChecker {
+    __init__(self, timeout) {
+        self.timeout = timeout;
+        self.checked = 0;
+        self.ok = 0;
+        self.redirect = 0;
+        self.client_err = 0;
+        self.server_err = 0;
+        self.errors = 0;
+        self.results = [];
+    }
+
+    check(self, url) {
+        # Set custom User-Agent
+        global [headers = {"User-Agent": USER_AGENT}];
+
+        # Time the request
+        global [startTime = time.timestamp];
+        global [response = requests.get(url, headers, self.timeout, false)];
+        global [elapsed = time.timestamp - startTime];
+
+        # elapsed dalam detik (float), convert ke ms
+        global [elapsedMs = int(elapsed * 1000)];
+
+        # Determine status
+        global [code = response.status_code];
+        global [tag = statusTag(code)];
+
+        # Update counters
+        self.checked = self.checked + 1;
+        if tag == "OK" {
+            self.ok = self.ok + 1;
+        } elif tag == "REDIRECT" {
+            self.redirect = self.redirect + 1;
+        } elif tag == "CLIENT_ERR" {
+            self.client_err = self.client_err + 1;
+        } elif tag == "SERVER_ERR" {
+            self.server_err = self.server_err + 1;
+        } else {
+            self.errors = self.errors + 1;
+        }
+
+        # Store result
+        global [result = {
+            "url": url,
+            "status": code,
+            "tag": tag,
+            "elapsed_ms": elapsedMs,
+            "ok": response.ok,
+            "content_length": len(response.body)
+        }];
+        self.results = self.results + [result];
+
+        return result;
+    }
+
+    printResult(self, result) {
+        # [200] https://example.com      (200, 123ms, 4567 bytes)
+        global [tag = result["tag"]];
+        global [code = result["status"]];
+        global [url = result["url"]];
+        global [ms = result["elapsed_ms"]];
+        global [cl = result["content_length"]];
+
+        # Format: [TAG] url  (code, Xms, Y bytes)
+        global [tagStr = "[" + tag + "]"];
+        global [paddedTag = pad(tagStr, 14)];
+        global [paddedUrl = pad(url, 45)];
+
+        print paddedTag + " " + paddedUrl + " (" + code + ", " + ms + "ms, " + cl + " bytes)";
+    }
+
+    summary(self) {
+        print "";
+        print "==========================================";
+        print "   SUMMARY                                ";
+        print "==========================================";
+        print "  Total checked:  " + self.checked;
+        print "  OK (2xx):       " + self.ok;
+        print "  Redirect (3xx): " + self.redirect;
+        print "  Client err:     " + self.client_err;
+        print "  Server err:     " + self.server_err;
+        print "  Errors:         " + self.errors;
+        print "==========================================";
+    }
+
+    findSlowest(self) {
+        # Find result dengan elapsed_ms tertinggi
+        if len(self.results) == 0 {
+            return null;
+        }
+        global [slowest = self.results[0]];
+        global [i = 1];
+        while i < len(self.results) {
+            if self.results[i]["elapsed_ms"] > slowest["elapsed_ms"] {
+                slowest = self.results[i];
+            }
+            i = i + 1;
+        }
+        return slowest;
+    }
+
+    findFastest(self) {
+        if len(self.results) == 0 {
+            return null;
+        }
+        global [fastest = self.results[0]];
+        global [i = 1];
+        while i < len(self.results) {
+            if self.results[i]["elapsed_ms"] < fastest["elapsed_ms"] {
+                fastest = self.results[i];
+            }
+            i = i + 1;
+        }
+        return fastest;
+    }
+
+    listByTag(self, tag) {
+        # Return list of result dengan tag tertentu
+        global [filtered = []];
+        global [i = 0];
+        while i < len(self.results) {
+            if self.results[i]["tag"] == tag {
+                filtered = filtered + [self.results[i]];
+            }
+            i = i + 1;
+        }
+        return filtered;
+    }
+}
+
+# ============================================================
+# REPORT GENERATOR
+# ============================================================
+
+function printDetailedReport(checker) {
+    print "";
+    print "=== DETAILED REPORT ===";
+    print "";
+
+    # Group by tag
+    global [tags = ["OK", "REDIRECT", "CLIENT_ERR", "SERVER_ERR", "ERROR"]];
+    global [t = 0];
+    while t < len(tags) {
+        global [tag = tags[t]];
+        global [items = checker.listByTag(tag)];
+        if len(items) > 0 {
+            print "--- " + tag + " (" + len(items) + ") ---";
+            global [i = 0];
+            while i < len(items) {
+                global [r = items[i]];
+                print "  " + r["url"] + " (" + r["status"] + ", " + r["elapsed_ms"] + "ms)";
+                i = i + 1;
+            }
+            print "";
+        }
+        t = t + 1;
+    }
+
+    # Fastest & slowest
+    global [fastest = checker.findFastest()];
+    global [slowest = checker.findSlowest()];
+
+    if fastest != null {
+        print "Fastest: " + fastest["url"] + " (" + fastest["elapsed_ms"] + "ms)";
+    }
+    if slowest != null {
+        print "Slowest: " + slowest["url"] + " (" + slowest["elapsed_ms"] + "ms)";
+    }
+}
+
+# ============================================================
+# MAIN
+# ============================================================
+
+function main() {
+    banner();
+
+    # Determine list file (hardcoded untuk demo, gak ada arg parsing)
+    global [listFile = DEFAULT_LIST];
+
+    # Kalau ada arg dari command line, pakai itu
+    # (JPX belum punya sys.argv, jadi hardcode)
+
+    # Cek file exists
+    if not fs.exists(listFile) {
+        print "ERROR: List file not found: " + listFile;
+        print "";
+        usage();
+        return 1;
+    }
+
+    # Read URLs
+    global [urls = readUrlList(listFile)];
+    if len(urls) == 0 {
+        print "No URLs to check.";
+        return 1;
+    }
+
+    # Init checker
+    global [checker = UrlChecker(DEFAULT_TIMEOUT)];
+
+    # Process each URL
+    print "Checking URLs...";
+    print "------------------------------------------";
+
+    global [i = 0];
+    while i < len(urls) {
+        global [url = urls[i]];
+        global [num = i + 1];
+        print "[" + num + "/" + len(urls) + "] " + url;
+
+        try {
+            global [result = checker.check(url)];
+            checker.printResult(result);
+        } catch (e) {
+            print "  ERROR: " + e;
+            # Manual error count
+            checker.checked = checker.checked + 1;
+            checker.errors = checker.errors + 1;
+            checker.results = checker.results + [{
+                "url": url,
+                "status": 0,
+                "tag": "ERROR",
+                "elapsed_ms": 0,
+                "ok": false,
+                "content_length": 0
+            }];
+        }
+        print "";
+        i = i + 1;
+    }
+
+    # Summary
+    checker.summary();
+
+    # Detailed report
+    printDetailedReport(checker);
+
+    print "";
+    print "Done!";
+    return 0;
+}
+
+# Run main
+main();
