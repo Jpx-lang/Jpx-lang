@@ -1,0 +1,57 @@
+# Comprehensive test untuk JPX setelah perbaikan
+[print];
+[time];
+
+# Function dengan return
+function isPositive(n) {
+    if n > 0 {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+function double(n) {
+    return n + n;
+}
+
+# Arithmetic
+global [sum = 0];
+for i = 1 to 10 {
+    global [sum = sum + i];
+}
+print "Sum 1..10 = " + sum;
+
+# Function call + comparison
+print "isPositive(4) = " + isPositive(4);
+print "isPositive(-3) = " + isPositive(-3);
+print "double(21) = " + double(21);
+
+# String concat + variable interpolation
+global [name = "JPX"];
+global [version = "1.0"];
+print "Hello from $name v$version";
+
+# if-else-if
+global [score = 85];
+if score >= 90 {
+    print "Grade: A";
+} else {
+    if score >= 80 {
+        print "Grade: B";
+    } else {
+        print "Grade: C";
+    }
+}
+
+# While loop with break
+global [count = 0];
+while true {
+    global [count = count + 1];
+    if count == 5 {
+        break;
+    }
+}
+print "Counted to: " + count;
+
+print "Done!";

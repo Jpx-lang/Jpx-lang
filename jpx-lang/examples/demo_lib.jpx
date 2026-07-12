@@ -1,0 +1,86 @@
+# demo_lib.jpx - Contoh penggunaan library .jpx (array & mathx)
+
+[array];
+[mathx];
+
+print "=== STATISTIK NILAI SISWA ===";
+print "";
+
+# Data nilai siswa
+global [nilai = [78, 85, 92, 65, 70, 88, 95, 60, 75, 82]];
+
+print "Daftar nilai: " + array.join(nilai, ", ");
+print "Jumlah siswa: " + len(nilai);
+print "Nilai tertinggi: " + array.max(nilai);
+print "Nilai terendah: " + array.min(nilai);
+print "Total: " + array.sum(nilai);
+print "Rata-rata: " + mathx.mean(nilai);
+print "";
+
+# Sort dulu untuk cari median
+global [sorted_nilai = array.sort(nilai)];
+print "Setelah diurutkan: " + array.join(sorted_nilai, ", ");
+print "Median: " + mathx.median(sorted_nilai);
+print "";
+
+# Hitung berapa yang lulus (>= 75)
+global [lulus = 0];
+global [gagal = 0];
+global [i = 0];
+while i < len(nilai) {
+    if nilai[i] >= 75 {
+        global [lulus = lulus + 1];
+    } else {
+        global [gagal = gagal + 1];
+    }
+    global [i = i + 1];
+}
+print "Lulus: " + lulus + " siswa";
+print "Tidak lulus: " + gagal + " siswa";
+print "";
+
+print "=== DERET FIBONACCI ===";
+print "10 bilangan Fibonacci pertama:";
+global [fib_list = []];
+global [i = 0];
+while i < 10 {
+    global [fib_list = fib_list + [mathx.fib(i)]];
+    global [i = i + 1];
+}
+print "  " + array.join(fib_list, ", ");
+print "";
+
+print "=== BILANGAN PRIMA 1-30 ===";
+global [primes = []];
+global [i = 2];
+while i <= 30 {
+    if mathx.isPrime(i) {
+        global [primes = primes + [i]];
+    }
+    global [i = i + 1];
+}
+print "Prima 1-30: " + array.join(primes, ", ");
+print "";
+
+print "=== FAKTORIAL & GCD ===";
+print "5! = " + mathx.factorial(5);
+print "10! = " + mathx.factorial(10);
+print "GCD(48, 36) = " + mathx.gcd(48, 36);
+print "GCD(17, 5) = " + mathx.gcd(17, 5);
+print "LCM(4, 6) = " + mathx.lcm(4, 6);
+print "";
+
+print "=== ARRAY MANIPULATION ===";
+global [buah = ["apel", "mangga", "jeruk"]];
+print "Buah: " + array.join(buah, ", ");
+print "Tambah pisang:";
+global [buah = array.push(buah, "pisang")];
+print "Buah: " + array.join(buah, ", ");
+print "Hapus terakhir:";
+global [buah = array.pop(buah)];
+print "Buah: " + array.join(buah, ", ");
+print "Index 'jeruk': " + array.indexOf(buah, "jeruk");
+print "Ada 'mangga'? " + array.contains(buah, "mangga");
+print "";
+
+print "Done!";

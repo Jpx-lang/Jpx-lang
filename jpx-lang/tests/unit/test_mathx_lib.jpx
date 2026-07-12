@@ -1,0 +1,78 @@
+# test_mathx_lib.jpx - Test untuk library/mathx.jpx (self-hosted)
+
+[mathx];
+
+global [passed = 0];
+global [failed = 0];
+
+function ok(name, actual, expected) {
+    if actual == expected {
+        global [passed = passed + 1];
+        print "  PASS  " + name;
+    } else {
+        global [failed = failed + 1];
+        print "  FAIL  " + name + " (expected " + expected + ", got " + actual + ")";
+    }
+}
+
+print "=== fib ===";
+ok("fib(0)", mathx.fib(0), 0);
+ok("fib(1)", mathx.fib(1), 1);
+ok("fib(2)", mathx.fib(2), 1);
+ok("fib(5)", mathx.fib(5), 5);
+ok("fib(10)", mathx.fib(10), 55);
+ok("fib(15)", mathx.fib(15), 610);
+
+print "";
+print "=== factorial ===";
+ok("factorial(0)", mathx.factorial(0), 1);
+ok("factorial(1)", mathx.factorial(1), 1);
+ok("factorial(5)", mathx.factorial(5), 120);
+ok("factorial(10)", mathx.factorial(10), 3628800);
+
+print "";
+print "=== isPrime ===";
+ok("isPrime(0)", mathx.isPrime(0), false);
+ok("isPrime(1)", mathx.isPrime(1), false);
+ok("isPrime(2)", mathx.isPrime(2), true);
+ok("isPrime(17)", mathx.isPrime(17), true);
+ok("isPrime(15)", mathx.isPrime(15), false);
+ok("isPrime(97)", mathx.isPrime(97), true);
+ok("isPrime(100)", mathx.isPrime(100), false);
+
+print "";
+print "=== gcd / lcm ===";
+ok("gcd(12,18)", mathx.gcd(12, 18), 6);
+ok("gcd(7,5)", mathx.gcd(7, 5), 1);
+ok("gcd(100,60)", mathx.gcd(100, 60), 20);
+ok("lcm(4,6)", mathx.lcm(4, 6), 12);
+
+print "";
+print "=== power ===";
+ok("power(2,0)", mathx.power(2, 0), 1);
+ok("power(2,10)", mathx.power(2, 10), 1024);
+ok("power(3,4)", mathx.power(3, 4), 81);
+ok("power(10,3)", mathx.power(10, 3), 1000);
+
+print "";
+print "=== isqrt ===";
+ok("isqrt(0)", mathx.isqrt(0), 0);
+ok("isqrt(1)", mathx.isqrt(1), 1);
+ok("isqrt(16)", mathx.isqrt(16), 4);
+ok("isqrt(15)", mathx.isqrt(15), 3);
+ok("isqrt(100)", mathx.isqrt(100), 10);
+
+print "";
+print "=== mean ===";
+ok("mean([1,2,3,4,5])", mathx.mean([1,2,3,4,5]), 3.0);
+
+print "";
+print "=== Total ===";
+print "Passed: " + passed;
+print "Failed: " + failed;
+
+if failed == 0 {
+    print "ALL TESTS PASSED";
+} else {
+    print "SOME TESTS FAILED";
+}

@@ -1,0 +1,122 @@
+# demo_string.jpx - Program yang pakai library .jpx untuk manipulasi text
+# Hitung statistik kata di kalimat
+
+[array];
+
+print "=== ANALISIS KALIMAT ===";
+print "";
+
+global [kalimat = "the quick brown fox jumps over the lazy dog"];
+print "Kalimat: " + kalimat;
+print "Panjang: " + len(kalimat) + " karakter";
+print "";
+
+# Manual split by space (JPX belum punya string.split native)
+global [kata = []];
+global [current = ""];
+global [i = 0];
+global [word_count = 0];
+
+while i < len(kalimat) {
+    global [ch = kalimat[i]];
+    if ch == " " {
+        if current != "" {
+            global [kata = kata + [current]];
+            global [word_count = word_count + 1];
+            global [current = ""];
+        }
+    } else {
+        global [current = current + ch];
+    }
+    global [i = i + 1];
+}
+# Tambah kata terakhir
+if current != "" {
+    global [kata = kata + [current]];
+    global [word_count = word_count + 1];
+}
+
+print "Jumlah kata: " + word_count;
+print "Daftar kata:";
+global [i = 0];
+while i < len(kata) {
+    print "  [" + i + "] " + kata[i];
+    global [i = i + 1];
+}
+print "";
+
+# Cari kata terpanjang
+global [longest = kata[0]];
+global [i = 1];
+while i < len(kata) {
+    if len(kata[i]) > len(longest) {
+        global [longest = kata[i]];
+    }
+    global [i = i + 1];
+}
+print "Kata terpanjang: " + longest + " (" + len(longest) + " chars)";
+print "";
+
+# Hitung frekuensi huruf (hanya huruf, case-insensitive)
+global [huruf = "abcdefghijklmnopqrstuvwxyz"];
+global [frek = []];
+global [j = 0];
+while j < 26 {
+    global [frek = frek + [0]];
+    global [j = j + 1];
+}
+
+global [i = 0];
+while i < len(kalimat) {
+    global [ch = kalimat[i]];
+    # Convert ke lowercase manual (kalau kapital, ubah)
+    global [code = ord(ch)];
+    if code >= 65 {
+        if code <= 90 {
+            global [code = code + 32];
+            global [ch = chr(code)];
+        }
+    }
+    # Cek apakah ch ada di 'huruf'
+    global [pos = -1];
+    global [j = 0];
+    while j < 26 {
+        if huruf[j] == ch {
+            global [pos = j];
+        }
+        global [j = j + 1];
+    }
+    if pos >= 0 {
+        # Increment frek[pos] (manual karena gak bisa assign ke list element)
+        global [newFrek = []];
+        global [k = 0];
+        while k < len(frek) {
+            if k == pos {
+                global [newFrek = newFrek + [frek[k] + 1]];
+            } else {
+                global [newFrek = newFrek + [frek[k]]];
+            }
+            global [k = k + 1];
+        }
+        global [frek = newFrek];
+    }
+    global [i = i + 1];
+}
+
+print "Frekuensi huruf (yang muncul):";
+global [j = 0];
+while j < 26 {
+    if frek[j] > 0 {
+        print "  " + huruf[j] + ": " + frek[j];
+    }
+    global [j = j + 1];
+}
+print "";
+
+# Statistik
+print "Statistik:";
+print "  Total huruf: " + array.sum(frek);
+print "  Huruf unik: " + array.max(frek) + " (max freq)";
+print "";
+
+print "Done!";

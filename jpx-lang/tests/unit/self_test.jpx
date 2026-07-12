@@ -1,0 +1,103 @@
+# self_test.jpx - JPX self-test written in JPX
+# Asserts via printing "PASS" / "FAIL" and ending with "ALL TESTS PASSED"
+
+global [passed = 0];
+global [failed = 0];
+
+function ok(name, actual, expected) {
+    if actual == expected {
+        global [passed = passed + 1];
+        print "  PASS  " + name;
+    } else {
+        global [failed = failed + 1];
+        print "  FAIL  " + name + " (expected " + expected + ", got " + actual + ")";
+    }
+}
+
+print "=== Arithmetic ===";
+ok("addition", 3 + 4, 7);
+ok("subtraction", 10 - 3, 7.0);
+ok("multiplication", 6 * 7, 42.0);
+ok("modulo", 17 % 5, 2);
+
+print "";
+print "=== Comparison ===";
+ok("equal", 5 == 5, true);
+ok("not equal", 5 != 6, true);
+ok("less than", 3 < 5, true);
+ok("greater than", 5 > 3, true);
+
+print "";
+print "=== String ===";
+global [s = "hello"];
+ok("index 0", s[0], "h");
+ok("index 4", s[4], "o");
+ok("slice 0:3", s[0:3], "hel");
+ok("slice 2:", s[2:], "llo");
+ok("len", len(s), 5);
+ok("ord", ord("A"), 65);
+ok("chr", chr(66), "B");
+
+print "";
+print "=== Function ===";
+function double(n) {
+    return n + n;
+}
+ok("double(21)", double(21), 42);
+
+function isEven(n) {
+    if n % 2 == 0 {
+        return true;
+    } else {
+        return false;
+    }
+}
+ok("isEven(4)", isEven(4), true);
+ok("isEven(7)", isEven(7), false);
+
+print "";
+print "=== Closure ===";
+global [PI = 3.14];
+function areaCircle(r) {
+    return PI * r * r;
+}
+ok("areaCircle(2)", areaCircle(2), 12.56);
+
+print "";
+print "=== List ===";
+global [arr = [1, 2, 3, 4, 5]];
+ok("list[0]", arr[0], 1);
+ok("list[4]", arr[4], 5);
+ok("len(list)", len(arr), 5);
+
+print "";
+print "=== Control flow ===";
+global [sum = 0];
+for i = 1 to 10 {
+    global [sum = sum + i];
+}
+ok("sum 1..10", sum, 55);
+
+global [count = 0];
+global [i = 0];
+while i < 5 {
+    global [count = count + 1];
+    global [i = i + 1];
+}
+ok("while loop count", count, 5);
+
+print "";
+print "=== Type conversion ===";
+ok("int('42')", int("42"), 42);
+ok("str(123)", str(123), "123");
+
+print "";
+print "=== Total ===";
+print "Passed: " + passed;
+print "Failed: " + failed;
+
+if failed == 0 {
+    print "ALL TESTS PASSED";
+} else {
+    print "SOME TESTS FAILED";
+}

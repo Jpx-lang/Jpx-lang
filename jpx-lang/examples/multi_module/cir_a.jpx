@@ -1,0 +1,6 @@
+# cir_a.jpx - Module A yang import B (yang import A)
+[cir_b];
+
+function helloFromA() {
+    return "Hello from A";
+}

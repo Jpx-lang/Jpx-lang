@@ -1,0 +1,74 @@
+# main.jpx - File utama yang import module .jpx lain
+# Demonstrasi: relative import dari direktori yang sama
+
+# Multi-import: import beberapa module sekaligus
+[utils, validator];
+
+print "==========================================";
+print "   MULTI-MODULE JPX DEMO                 ";
+print "==========================================";
+print "";
+
+# Akses function dari utils.jpx
+print "=== UTILS MODULE ===";
+print "formatNumber(1234567): " + utils.formatNumber(1234567);
+print "isEven(4): " + utils.isEven(4);
+print "isEven(7): " + utils.isEven(7);
+print "isOdd(7): " + utils.isOdd(7);
+print "formatTime(3661): " + utils.formatTime(3661);
+print "VERSION: " + utils.VERSION;
+print "AUTHOR: " + utils.AUTHOR;
+print "";
+
+# Akses function dari validator.jpx
+print "=== VALIDATOR MODULE ===";
+print "isEmail('test@example.com'): " + validator.isEmail("test@example.com");
+print "isEmail('invalid-email'): " + validator.isEmail("invalid-email");
+print "minLength('hello', 3): " + validator.minLength("hello", 3);
+print "minLength('hi', 5): " + validator.minLength("hi", 5);
+print "maxLength('hello', 10): " + validator.maxLength("hello", 10);
+print "isAlpha('Hello'): " + validator.isAlpha("Hello");
+print "isAlpha('Hello123'): " + validator.isAlpha("Hello123");
+print "inRange(5, 1, 10): " + validator.inRange(5, 1, 10);
+print "inRange(15, 1, 10): " + validator.inRange(15, 1, 10);
+print "";
+
+# Test single attribute import
+print "=== SINGLE ATTRIBUTE IMPORT ===";
+[utils.isEven];
+print "isEven(10) (after single import): " + isEven(10);
+print "";
+
+# Test multiple attribute import
+print "=== MULTIPLE ATTRIBUTE IMPORT ===";
+[validator.isEmail, validator.isAlpha];
+print "isEmail('a@b.com') (after multi attr import): " + isEmail("a@b.com");
+print "isAlpha('Hello') (after multi attr import): " + isAlpha("Hello");
+print "";
+
+# Combined use of both modules
+print "=== COMBINED USE ===";
+function validateAndFormat(name, email, age) {
+    # Validasi
+    if not validator.isAlpha(name) {
+        return "Error: Name must be alphabetic";
+    }
+    if not validator.isEmail(email) {
+        return "Error: Invalid email";
+    }
+    if not validator.inRange(age, 0, 150) {
+        return "Error: Age must be 0-150";
+    }
+
+    # Format
+    global [result = "Name: " + name + " | Email: " + email + " | Age: " + utils.formatNumber(age)];
+    return result;
+}
+
+print validateAndFormat("Alice", "alice@example.com", 25);
+print validateAndFormat("Bob123", "bob@test.com", 30);
+print validateAndFormat("Charlie", "invalid-email", 40);
+print validateAndFormat("David", "david@example.com", 200);
+print "";
+
+print "Done!";
