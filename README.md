@@ -170,6 +170,10 @@ Beberapa rencana pengembangan JPX:
 
 ---
 
+# download
+**Jpx package downloads**
+[jpxkg](https://jpxkg.netlify.app/)
+
 # 📢 Community
 
 Ikuti perkembangan JPX melalui:
