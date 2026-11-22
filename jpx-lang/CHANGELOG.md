@@ -1,3 +1,133 @@
+# JPX Changelog
+
+## A2 — 2026-11-22
+
+### 🐛 Bug Fixes
+
+#### `switch` tidak pernah match kecuali tanpa spasi
+`handle_switch` melewati whitespace dengan membaca variabel `body`
+(seluruh statement, termasuk `{` pembuka) padahal posisinya dipakai untuk
+mengindeks `block`. Index tidak pernah sinkron, sehingga `case`/`default`
+hanya terbaca kalau ditulis `{case 1 {...}` tanpa spasi sama sekali:
+
+```jpx
+switch x { case 1 { ... } }        # dulu: tidak jalan sama sekali
+switch x {
+    case 1 { print "one"; }        # dulu: tidak jalan
+    default { print "other"; }     # sekarang: jalan
+}
+```
+
+Sekarang skip-whitespace membaca `block`, ditambah pengecekan batas token
+agar `defaults`/`mycase` tidak salah dikenali sebagai `default`/`case`.
+
+#### `global` tanpa `;` menelan statement berikutnya
+`handle_global` memakai regex greedy `global\s*\[(.*)\]` yang cocok sampai
+`]` **terakhir** — sisa statement setelah `]` penutup diabaikan diam-diam,
+jadi kode hilang tanpa error:
+
+```jpx
+global [a = 1]
+print "A";          # dulu: hilang tanpa jejak, exit code 0
+```
+
+Diganti scan bracket seimbang (mendukung nested list) plus validasi sisa
+teks, sehingga sekarang memberi error jelas:
+
+```
+Unexpected text after global declaration: 'print "A"' (statements must end with ';')
+```
+
+#### Stdlib: `global [...]` kurang `]` (pre-existing)
+Lima deklarasi di stdlib tidak punya `]` penutup, sehingga statement
+berikutnya ikut tertelan dan fungsi-fungsi ini rusak sejak awal:
+
+- `library/jpx/string.jpx` — `isDigit()`, `isAlpha()` (2 tempat)
+- `library/jpx/io.jpx` — `readLines()`, `copy()`
+- `library/jpx/types.jpx` — `isCallable()`
+
+```jpx
+[jpx.string];
+print string.isDigit("5");   # dulu: Invalid global statement
+print string.isAlpha("B");   # sekarang: True
+```
+
+#### Multi declaration `global [a = 1, b = 2, c = 3]`
+Sebelumnya `handle_global` memakai `inner.split('=', 1)`, sehingga
+multi-deklarasi melempar `Invalid assignment target: '1'`. Sekarang
+di-split per-pair memakai koma top-level (sadar string/list/dict), lalu
+tiap pair dievaluasi **berurutan**:
+
+```jpx
+global [a = 1, b = 2, c = 3];                 # works
+global [list1 = [1, 2], list2 = [3, 4]];      # koma di list aman
+global [msg = "a,b", flag = true];            # koma di string aman
+global [width = 10, area = width * 5];        # area = 50 (urut)
+```
+
+Bonus: `global [x == 1]` kini error jelas (bukan dianggap assignment),
+dan env selalu di-restore lewat `finally` kalau ada error.
+
+#### Parameter function ketimpa global (pre-existing)
+`handle_global` mengevaluasi nilai dengan merged-env "global first",
+sehingga **parameter ketimpa global** kalau namanya sama. Ini membuat
+stdlib rusak begitu user mendeklarasikan global dengan nama parameter:
+
+```jpx
+global [arr = ["a", "b"]];
+[array];
+print array.sum([1, 2, 3]);   # Runtime Error: Cannot index list with 2
+```
+
+Sekarang parameter diberi prioritas lewat `param_scope_stack`
+(di-push `JPXFunction.call`, di-pop di `finally`).
+
+#### String method chaining
+`eval_expression` hanya mengenali **satu** method call lewat regex
+`obj.method(args)`, sehingga `s.upper().lower()` gagal dengan
+`Invalid expression: ').lower('`. Diganti `_eval_string_method_chain`
+yang mengevaluasi rantai postfix dari kiri ke kanan:
+
+```jpx
+word.upper().lower()
+word.strip().upper()
+word.replace("o", "0").upper()
+csv.split(",")[0].upper()      # method -> index -> method
+letters[0].upper()             # receiver index access
+"abc".upper().trim()           # receiver literal
+obj.name.lower()               # receiver property access
+```
+
+Rantai **hanya** diambil kalau semua method termasuk set method string —
+nama lain (`array.sort`, `requests.get`, `choose.choose`) jatuh ke
+function-call path seperti sebelumnya, jadi tidak ada regresi.
+
+#### `trim()` alias
+`trim` dipakai terus di stdlib (`jpx/string.jpx`, `library/string.py`)
+tapi bukan method native, sehingga `s.trim()` diam-diam menghasilkan
+`null`. Sekarang jadi alias `strip()`.
+
+### 📦 Build & Release
+
+#### Support PyInstaller (frozen mode)
+`get_jpx_paths()` selalu memakai `dirname(__file__)` yang menunjuk folder
+ekstraksi temp saat di-build, sedangkan `ImportHandler` memakai
+`dirname(sys.executable)` — dua path berbeda sehingga build frozen tidak
+menemukan `library/`. Sekarang keduanya konsisten menunjuk folder yang
+sama dengan executable.
+
+#### Versi
+`VERSION`/`VERSION_NAME` diperbarui menjadi **A2**.
+
+### ✅ Tests
+- `tests/unit/test_global_and_chains.jpx` — 36 assertion baru
+  (multi-global, chaining, param-vs-global collision)
+- `tests/unit/test_switch.jpx` — 10 assertion baru (spasi, multiline,
+  default, string case, nested brace, expression case value, no fall-through)
+- Suite utama: **10/10** file test lulus
+
+---
+
 # JPX v1.5.0 Changelog
 
 Released: 2026-07-12

@@ -1,0 +1,144 @@
+# test_switch.jpx - Regresi untuk bug switch (whitespace skip pakai `body`
+# alih-alih `block`, sehingga `case`/`default` tidak pernah ketemu kalau
+# ada spasi setelah `{`).
+
+global [passed = 0];
+global [failed = 0];
+
+function ok(name, actual, expected) {
+    if actual == expected {
+        global [passed = passed + 1];
+        print "  PASS  " + name;
+    } else {
+        global [failed = failed + 1];
+        print "  FAIL  " + name + " (expected " + expected + ", got " + actual + ")";
+    }
+}
+
+print "=== Switch: spasi setelah { ===";
+global [hit1 = "none"];
+global [x = 2];
+switch x {
+    case 1 { global [hit1 = "one"]; }
+    case 2 { global [hit1 = "two"]; }
+    case 3 { global [hit1 = "three"]; }
+}
+ok("case 2 matches", hit1, "two");
+
+print "";
+print "=== Switch: multiline + indentasi ===";
+global [hit2 = "none"];
+global [day = 3];
+switch day {
+    case 1 {
+        global [hit2 = "senin"];
+    }
+    case 2 {
+        global [hit2 = "selasa"];
+    }
+    case 3 {
+        global [hit2 = "rabu"];
+    }
+    default {
+        global [hit2 = "lainnya"];
+    }
+}
+ok("multiline case 3", hit2, "rabu");
+
+print "";
+print "=== Switch: default ===";
+global [hit3 = "none"];
+global [y = 99];
+switch y {
+    case 1 { global [hit3 = "one"]; }
+    default { global [hit3 = "fallback"]; }
+}
+ok("default runs when no match", hit3, "fallback");
+
+print "";
+print "=== Switch: tidak ada match & tidak ada default ===";
+global [hit4 = "untouched"];
+global [z = 7];
+switch z {
+    case 1 { global [hit4 = "one"]; }
+}
+ok("nothing runs", hit4, "untouched");
+
+print "";
+print "=== Switch: case pertama tidak match, kedua match ===";
+global [hit5 = "none"];
+global [n = 10];
+switch n {
+    case 1 { global [hit5 = "first"]; }
+    case 10 { global [hit5 = "second"]; }
+    case 100 { global [hit5 = "third"]; }
+}
+ok("middle case matches", hit5, "second");
+
+print "";
+print "=== Switch: string case ===";
+global [hit6 = "none"];
+global [name = "bob"];
+switch name {
+    case "alice" { global [hit6 = "Alice"]; }
+    case "bob" { global [hit6 = "Bob"]; }
+    default { global [hit6 = "?"]; }
+}
+ok("string case", hit6, "Bob");
+
+print "";
+print "=== Switch: tanpa spasi ( bentuk lama tetap jalan ) ===";
+global [hit7 = "none"];
+global [v = 5];
+switch v {case 5 {global [hit7 = "tight"];}}
+ok("no-space form still works", hit7, "tight");
+
+print "";
+print "=== Switch: block bersarang {} di dalam case ===";
+global [hit8 = "none"];
+global [w = 1];
+switch w {
+    case 1 {
+        global [hit8 = "start"];
+        if w == 1 {
+            global [hit8 = hit8 + "+nested"];
+        }
+    }
+    default {
+        global [hit8 = "no"];
+    }
+}
+ok("nested braces", hit8, "start+nested");
+
+print "";
+print "=== Switch: case value berupa expression ===";
+global [hit9 = "none"];
+global [a = 2];
+global [b = 3];
+switch a + b {
+    case 4 { global [hit9 = "four"]; }
+    case 5 { global [hit9 = "five"]; }
+    default { global [hit9 = "?"]; }
+}
+ok("expression case value", hit9, "five");
+
+print "";
+print "=== Switch: no fall-through ===";
+global [hit10 = "none"];
+global [q = 1];
+switch q {
+    case 1 { global [hit10 = "one"]; }
+    case 2 { global [hit10 = hit10 + "+two"]; }
+}
+ok("no fall-through", hit10, "one");
+
+print "";
+print "=== Total ===";
+print "Passed: " + passed;
+print "Failed: " + failed;
+
+if failed == 0 {
+    print "ALL TESTS PASSED";
+} else {
+    print "SOME TESTS FAILED";
+}

@@ -58,7 +58,7 @@ function isFunction(val) {
 
 function isCallable(val) {
     if val is null { return false; }
-    global [t = type(val);
+    global [t = type(val)];
     if t == "function" { return true; }
     if t == "JPXFunction" { return true; }
     if t == "builtin_function_or_method" { return true; }

@@ -34,16 +34,30 @@ JPX adalah bahasa pemrograman dinamis yang:
 global [x = 42];
 global [name = "Alice"];
 
-# Multiple declaration
+# Multiple declaration — dipisah koma di top-level
 global [a = 1, b = 2, c = 3];
+global [list1 = [1, 2], list2 = [3, 4]];   # koma di dalam list aman
+global [msg = "a,b", flag = true];         # koma di dalam string aman
+
+# Pair dievaluasi berurutan, jadi pair kedua bisa baca pair pertama
+global [width = 10, area = width * 5];     # area = 50
 
 # Local assignment (di dalam function)
-local [tmp = compute()];
-
-# Mutable assignment (tanpa global)
 x = 10;
 y = "hello";
 ```
+
+**Skoping `global [...]` saat mengevaluasi nilai:**
+1. **Parameter** function yang sedang jalan — paling tinggi
+   (parameter `arr` tidak ketimpa `global [arr = ...]`)
+2. **Global terkini** — inilah yang membuat
+   `global [counter = counter + 1]` membaca nilai global terbaru,
+   bukan snapshot closure yang basi
+3. **Local / closure** dengan nama yang bukan global
+
+> **Catatan**: `local [tmp = compute()];` tercantum di docs lama tapi
+> **belum diimplementasikan**. Gunakan `tmp = compute();` (assignment
+> biasa = local scope di dalam function).
 
 ### Multiple Assignment
 ```jpx
@@ -282,6 +296,9 @@ s[2:]       # "llo"
 ```jpx
 s.split(",")          # split ke list
 s.strip()             # trim whitespace
+s.trim()              # alias strip()
+s.lstrip()            # trim kiri
+s.rstrip()            # trim kanan
 s.replace("a", "b")   # replace all
 s.upper()             # uppercase
 s.lower()             # lowercase
@@ -294,6 +311,31 @@ s.repeat(n)           # string repeated n times
 s.substring(start, end)  # slice
 s.toCharArray()       # list of chars
 ```
+
+### Method Chaining
+Method string bisa dirangkai dari kiri ke kanan, dan hasil method
+sebelumnya bisa langsung jadi receiver method berikutnya atau di-index:
+
+```jpx
+global [word = "  Hello World  "];
+
+word.upper().lower()                 # "  hello world  "
+word.strip().upper()                 # "HELLO WORLD"
+word.upper().strip().lower()         # "hello world"
+word.replace("o", "0").upper()       # "  HELL0 W0RLD  "
+
+"abc".upper().trim()                 # receiver literal
+csv.split(",")[0].upper()            # method -> index -> method
+letters[0].lower()                   # receiver index access
+obj.name.trim()                      # receiver property access
+```
+
+Catatan:
+- Hanya method **string** yang bisa di-chain. Kalau ada nama method lain
+  (mis. `array.sort(...)`, `requests.get(...)`), ekspresi jatuh ke
+  function-call path seperti biasa.
+- Method native JPX **tidak punya chaining otomatis untuk non-string**
+  (mis. `arr.append(x).len()` tidak didukung).
 
 ---
 

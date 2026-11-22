@@ -7,20 +7,27 @@ import os
 import argparse
 
 # Constants
-VERSION = "1.0.0"
-VERSION_NAME = "JPX v1.0. A exclusive version version"
+VERSION = "2.0.0"
+VERSION_NAME = "JPX A2 - A exclusive version"
 
 def get_jpx_paths():
     """Dapatkan path penting JPX"""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    
+    # Saat di-build dengan PyInstaller (frozen), resource harus dicari di
+    # folder yang sama dengan executable — bukan di folder ekstraksi temp
+    # (__file__). Ini disamakan dengan ImportHandler yang juga memakai
+    # dirname(sys.executable) saat frozen.
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
     paths = {
         'root': base_dir,
         'library': os.path.join(base_dir, 'library'),
         'lib': os.path.join(base_dir, 'lib'),
         'interpreter': os.path.join(base_dir, 'interpreter')
     }
-    
+
     return paths
 
 def show_version():

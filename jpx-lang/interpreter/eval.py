@@ -145,7 +145,7 @@ class EvalHandler:
                 if not args:
                     return s.split()
                 return s.split(args[0])
-            if method_name == 'strip':
+            if method_name == 'strip' or method_name == 'trim':
                 return s.strip()
             if method_name == 'lstrip':
                 return s.lstrip()
@@ -185,6 +185,215 @@ class EvalHandler:
             raise exceptions.JPXTypeError(
                 f"Error calling string method '{method_name}': {e}"
             )
+
+    # Nama method string yang dikenali. Kalau ada method di luar set ini
+    # di dalam sebuah rantai (mis. array.sort, requests.get,
+    # choose.choose), kita mundur dan biarkan function-call path yang
+    # menangani.
+    STRING_METHODS = frozenset({
+        'split', 'strip', 'trim', 'lstrip', 'rstrip', 'replace', 'upper',
+        'lower', 'contains', 'startsWith', 'endsWith', 'find', 'count',
+        'repeat', 'substring', 'toCharArray',
+    })
+
+    def _matching_open(self, expr):
+        """Index delimiter pembuka yang cocok dengan karakter TERAKHIR expr.
+
+        Mendukung `)` dan `]`. String literal di-track agar delimiter di
+        dalam string tidak dihitung (mis. s.split(")") atau obj["a]b"]).
+        Return -1 kalau karakter terakhir bukan penutup yang valid.
+        """
+        if not expr:
+            return -1
+        close = expr[-1]
+        if close == ')':
+            opens, closes = '(', ')'
+        elif close == ']':
+            opens, closes = '[', ']'
+        else:
+            return -1
+
+        stack = []
+        in_str = False
+        quote_ch = None
+        i = 0
+        while i < len(expr):
+            ch = expr[i]
+            if in_str:
+                if ch == '\\' and i + 1 < len(expr):
+                    i += 2
+                    continue
+                if ch == quote_ch:
+                    in_str = False
+                i += 1
+                continue
+            if ch in '"\'':
+                in_str = True
+                quote_ch = ch
+            elif ch == opens:
+                stack.append(i)
+            elif ch == closes:
+                if not stack:
+                    return -1
+                idx = stack.pop()
+                if i == len(expr) - 1:
+                    return idx
+            i += 1
+        return -1
+
+    def _is_chain_base(self, base, allow_call):
+        """Cek apakah `base` boleh jadi penerima method.
+
+        Tolak expression yang mengandung operator (mis. `a + b`, `x = s`)
+        supaya tidak menabrak path assignment / arithmetic.
+        """
+        if not base:
+            return False
+        # String literal: "abc" atau 'abc'
+        if len(base) >= 2 and base[0] in '"\'' and base[-1] == base[0]:
+            return True
+        # IDENT, IDENT.field, IDENT[idx], IDENT[idx][idx], ...
+        if re.match(r'^[a-zA-Z_][a-zA-Z0-9_.\[\]]*$', base):
+            return True
+        # Hasil call: foo(...), mod.fn(...). Hanya diizinkan untuk rantai
+        # panjang (>= 2 postfix) supaya perilaku method tunggal persis
+        # sama seperti sebelumnya — zero regression untuk kode yang sudah
+        # jalan, plus mencegah double-evaluation pada call bersisi efek.
+        if allow_call and re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*\(.*\)$',
+                                   base, re.DOTALL):
+            return True
+        return False
+
+    def _chain_index(self, obj, idx_str):
+        """Index obj (list/str/dict) di dalam rantai method."""
+        idx_str = idx_str.strip()
+        if (idx_str.startswith('"') and idx_str.endswith('"')) or \
+           (idx_str.startswith("'") and idx_str.endswith("'")):
+            idx = idx_str[1:-1]
+        else:
+            val = self.eval_expression(idx_str)
+            if isinstance(val, str) and val.lstrip('-').isdigit():
+                idx = int(val)
+            elif isinstance(val, (int, float)) and not isinstance(val, bool):
+                idx = int(val)
+            else:
+                idx = val
+        try:
+            return obj[idx]
+        except (IndexError, KeyError, TypeError) as e:
+            raise exceptions.JPXTypeError(
+                f"Cannot index {type(obj).__name__} with {idx!r}: {e}"
+            )
+
+    def _eval_string_method_chain(self, expr):
+        """Evaluasi rantai postfix method string.
+
+        Mendukung:
+            s.upper().lower()               # chain dua method
+            s.trim().upper().lower()        # chain tiga method
+            s.split(",")[0].upper()         # method -> index -> method
+            "abc".upper().trim()            # receiver literal
+            arr[0].upper()                  # receiver index access
+            obj.name.lower()                # receiver property access
+
+        Return (True, value) kalau expr cocok dan berhasil dievaluasi.
+        Return (False, None) kalau bukan rantai method string — caller
+        HARUS fall through ke path lain (function call, assignment,
+        arithmetic, ...) supaya perilaku lama tidak berubah.
+        """
+        s = expr.strip()
+        # Diumpet dari kanan ke kiri (urutan peel), dibalik sebelum evaluasi.
+        ops = []
+
+        while s:
+            if s[-1] not in ')]':
+                break
+            open_pos = self._matching_open(s)
+            if open_pos < 0:
+                break
+            prefix = s[:open_pos].rstrip()
+
+            if s[-1] == ')':
+                # postfix `.nama(args)` — ambil method TERAKHIR di prefix
+                m = re.match(r'^(.*?)\s*\.\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*$',
+                             prefix, re.DOTALL)
+                if not m:
+                    break  # panggilan biasa: f(a), mod.fn(a), ...
+                ops.append(('call', m.group(2), s[open_pos + 1:-1]))
+                s = m.group(1).strip()
+            else:
+                # postfix `[idx]` — base sebelum bracket harus IDENT / call /
+                # index lain. Kalau bukan (mis. `obj.field[0]`), mundur dan
+                # serahkan ke jalur yang sudah ada.
+                if not (re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', prefix)
+                        or prefix.endswith(')') or prefix.endswith(']')):
+                    break
+                inner = s[open_pos + 1:-1].strip()
+                if ':' in inner and not (inner.startswith('"')
+                                         or inner.startswith("'")):
+                    # Slice di dalam rantai — serahkan ke jalur lain.
+                    return False, None
+                ops.append(('index', inner, None))
+                s = prefix
+
+        # Harus ada minimal SATU method call; kalau tidak, ini bukan
+        # expression method (mis. `arr[0]`, `f(a)`).
+        calls = [op for op in ops if op[0] == 'call']
+        if not calls:
+            return False, None
+
+        # Semua method harus string method. Kalau ada nama lain, mundur.
+        for _, name, _ in calls:
+            if name not in self.STRING_METHODS:
+                return False, None
+
+        base = s.strip()
+        if not self._is_chain_base(base, allow_call=len(ops) >= 2):
+            return False, None
+
+        # --- Semua prasyarat terpenuhi: evaluasi dari kiri ke kanan ---
+        if base.startswith('"') and base.endswith('"'):
+            cur = self.process_string(base[1:-1])
+        elif base.startswith("'") and base.endswith("'"):
+            cur = base[1:-1]
+        else:
+            try:
+                cur = self.eval_expression(base)
+            except exceptions.JPXError:
+                return False, None
+            # NOTE: base TIDAK harus string di sini — bisa jadi list yang
+            # nanti di-index dulu (arr[0].upper()). Kecocokan string baru
+            # dicek di depan tiap method call.
+
+        ops.reverse()  # dari kiri ke kanan
+        first_call = True
+        for op in ops:
+            if op[0] == 'index':
+                cur = self._chain_index(cur, op[1])
+                continue
+
+            _, name, args_str = op
+            if not isinstance(cur, str):
+                if first_call:
+                    # Receiver bukan string (module, list, instance, ...)
+                    # -> mundur ke function-call path seperti sebelumnya.
+                    # Ini yang membuat `string.upper(s)` tetap jalan.
+                    return False, None
+                # Setelah satu method string sukses, receiver berikutnya
+                # memang wajib string.
+                raise exceptions.JPXTypeError(
+                    f"Cannot call string method '{name}' on "
+                    f"{type(cur).__name__}"
+                )
+            args = self.parse_args(args_str)
+            result = self._call_string_method(cur, name, args)
+            if result is None:
+                # Method tidak dikenal (seharusnya tidak terjadi karena
+                # sudah difilter di atas) — mundur dengan aman.
+                return False, None
+            cur = result
+            first_call = False
+        return True, cur
 
     # ================== CLASS SUPPORT ==================
 
@@ -928,57 +1137,23 @@ class EvalHandler:
 
         # String methods native — cek SEBELUM function call path, karena
         # `s.contains(...)` juga match function call regex `IDENT.attr(...)`.
-        # Method yang didukung: split, strip, replace, upper, lower, contains,
-        # startsWith, endsWith, find, count, repeat, substring, toCharArray.
-        # Syntax:
-        #   IDENT.method(args)        — string variable
-        #   "literal".method(args)    — string literal
-        #   arr[i].method(args)       — index access yang return string
-        #   obj.field.method(args)    — property access yang return string
+        # Method yang didukung: split, strip, lstrip, rstrip, replace, upper,
+        # lower, contains, startsWith, endsWith, find, count, repeat,
+        # substring, toCharArray.
+        # Syntax (sudah termasuk rantai):
+        #   IDENT.method(args)            — string variable
+        #   IDENT.method(a).method(b)     — rantai method
+        #   "literal".method(args)        — string literal
+        #   arr[i].method(args)           — index access yang return string
+        #   obj.field.method(args)        — property access yang return string
+        #   IDENT.method(args)[i]         — method lalu index
+        #   IDENT.method(args).method(b)  — method lalu method lagi
         #
-        # Kita ekstrak "obj part" (sebelum .method) dan eval terlebih dahulu.
-        # Kalau hasilnya string, pakai string method. Kalau bukan, fall through.
-        string_method_match = re.match(
-            r'^(.*?)\s*\.\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)\s*$',
-            expr, re.DOTALL
-        )
-        if string_method_match:
-            obj_str = string_method_match.group(1).strip()
-            method_name = string_method_match.group(2)
-            args_str = string_method_match.group(3)
-
-            # Hanya coba kalau obj_str adalah expression yang valid
-            # (bukan nested call kompleks — itu ditangani function call path)
-            # Skip kalau ada operator di obj_str (mis. "a + b".method())
-            # Kecuali index/property access yang valid
-            should_try = False
-            if obj_str.startswith('"') and obj_str.endswith('"'):
-                should_try = True
-            elif obj_str.startswith("'") and obj_str.endswith("'"):
-                should_try = True
-            elif re.match(r'^[a-zA-Z_][a-zA-Z0-9_.\[\]]*$', obj_str):
-                # IDENT atau IDENT.field atau IDENT[idx] atau IDENT[idx][idx]...
-                should_try = True
-
-            if should_try:
-                # Evaluasi objek
-                if obj_str.startswith('"') and obj_str.endswith('"'):
-                    obj = self.process_string(obj_str[1:-1])
-                elif obj_str.startswith("'") and obj_str.endswith("'"):
-                    obj = obj_str[1:-1]
-                else:
-                    try:
-                        obj = self.eval_expression(obj_str)
-                    except exceptions.JPXError:
-                        obj = None
-
-                if isinstance(obj, str):
-                    args = self.parse_args(args_str)
-                    result = self._call_string_method(obj, method_name, args)
-                    if result is not None:
-                        return result
-            # Kalau bukan string atau method tidak dikenal, fall through ke
-            # function call / chained access path
+        # Kalau bukan rantai method string, kita mundur (fall through) ke
+        # function call / chained access / assignment path.
+        handled, chain_value = self._eval_string_method_chain(expr)
+        if handled:
+            return chain_value
 
         # Function call: IDENT(args)
         # Sebelumnya pakai regex greedy `^IDENT\((.*)\)$` yang menelan

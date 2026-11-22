@@ -107,7 +107,7 @@ function isDigit(s) {
     global [i = 0];
     while i < len(s) {
         global [c = s[i]];
-        global [code = ord(c);
+        global [code = ord(c)];
         if code < 48 { return false; }
         if code > 57 { return false; }
         i = i + 1;
@@ -121,7 +121,7 @@ function isAlpha(s) {
     global [i = 0];
     while i < len(s) {
         global [c = s[i]];
-        global [code = ord(c);
+        global [code = ord(c)];
         if code >= 65 {
             if code <= 90 {
                 i = i + 1;

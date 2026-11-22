@@ -44,6 +44,10 @@ class JPXInterpreter:
         self.return_value = None
         self.functions = {}
         self.loop_depth = 0
+        # Stack nama parameter function yang sedang dieksekusi.
+        # Dipakai handle_global agar parameter tidak ketimpa global
+        # dengan nama sama (lihat handle_global).
+        self.param_scope_stack = []
         # Global env reference — `global [x = 5]` sets here, bukan di
         # local function scope. `x = 5` sets di current scope (local).
         self.global_env = self.env
@@ -129,8 +133,9 @@ class JPXInterpreter:
                 elif stmt.startswith('[') and stmt.endswith(']'):
                     self.import_handler.handle(stmt)
                 
-                # Global variable assignment
-                elif stmt.startswith('global ['):
+                # Global variable declaration: `global [x = 5]` atau
+                # multi `global [a = 1, b = 2]` (spasi setelah global opsional)
+                elif re.match(r'^global\s*\[', stmt):
                     self.handle_global(stmt)
                 
                 # If statement
@@ -337,16 +342,23 @@ class JPXInterpreter:
         matched_block = None
         pos = 0
         while pos < len(block):
-            # Skip whitespace
-            while pos < len(block) and body and body[pos:pos+1] in ' \t\n\r':
+            # Skip whitespace.
+            # CATATAN: dulu pakai `body` (yang isinya seluruh statement
+            # termasuk kurung buka), sehingga index-nya tidak sinkron dengan
+            # `block` dan `case`/`default` tidak pernah ketemu kecuali
+            # ditulis tanpa spasi sama sekali (`{case 1 {...}`).
+            while pos < len(block) and block[pos] in ' \t\n\r':
                 pos += 1
             if pos >= len(block):
                 break
 
+            # `case` / `default` hanya dianggap token kalau berdiri sendiri
+            # (diawali spasi, baris baru, atau `}`) — bukan bagian dari
+            # identifier lain (mis. `defaults`, `mycase`).
+            at_boundary = (pos == 0) or (block[pos - 1] in ' \t\n\r}{' )
+
             # Cek `default`
-            if body is None:
-                break
-            if block[pos:pos+7] == 'default':
+            if at_boundary and block[pos:pos + 7] == 'default':
                 pos += 7
                 # Skip whitespace
                 while pos < len(block) and block[pos] in ' \t\n\r':
@@ -381,7 +393,7 @@ class JPXInterpreter:
                 continue
 
             # Cek `case`
-            if block[pos:pos+4] == 'case':
+            if at_boundary and block[pos:pos + 4] == 'case':
                 pos += 4
                 # Skip whitespace
                 while pos < len(block) and block[pos] in ' \t\n\r':
@@ -623,21 +635,83 @@ class JPXInterpreter:
         return None
 
     def handle_global(self, stmt):
-        """Handle global variable assignment: global [var = value]"""
-        m = re.match(r'global\s*\[(.*)\]', stmt, re.DOTALL)
-        if not m:
+        """Handle global variable declaration.
+
+        Mendukung satu deklarasi:
+            global [x = 5];
+        maupun multi-deklarasi (dipisah koma di top-level):
+            global [a = 1, b = 2, c = [1, 2]];
+
+        Pair dievaluasi BERURUTAN, sehingga `global [a = 1, b = a + 1]`
+        menghasilkan b = 2. Koma di dalam value (list, dict, string, arg
+        call) tidak ikut terpecah karena split pakai depth/string tracking.
+        """
+        # Cari `[` pembuka setelah kata kunci `global`.
+        # CATATAN: dulu memakai regex greedy `global\s*\[(.*)\]` yang cocok
+        # sampai `]` TERAKHIR di seluruh statement. Akibatnya teks setelah `]`
+        # penutup (statement berikutnya yang lupa diakhiri `;`) DIABAIKAN
+        # diam-diam — kode hilang tanpa error sama sekali.
+        br = re.match(r'global\s*\[', stmt)
+        if not br:
             raise exceptions.JPXSyntaxError("Invalid global statement")
-        
-        inner = m.group(1).strip()
+
+        start = br.end()  # index pertama setelah '['
+        # Scan bracket seimbang agar `global [a = [1, 2]]` (nested list)
+        # tertangkap benar, sekaligus tahu persis di mana `]` penutupnya.
+        # depth mulai dari 1 karena posisi sudah LEWAT `[` pembuka.
+        depth = 1
+        in_str = False
+        quote = None
+        escape = False
+        end = -1
+        for i in range(start, len(stmt)):
+            ch = stmt[i]
+            if in_str:
+                if ch == quote and not escape:
+                    in_str = False
+                    quote = None
+                elif ch == '\\' and not escape:
+                    escape = True
+                else:
+                    escape = False
+                continue
+            if ch in ('"', "'"):
+                in_str = True
+                quote = ch
+                escape = False
+                continue
+            if ch == '[':
+                depth += 1
+            elif ch == ']':
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end == -1:
+            raise exceptions.JPXSyntaxError(
+                "Missing ']' in global declaration"
+            )
+
+        # Sisa teks setelah `]` penutup hanya boleh kosong atau `;`.
+        # Kalau ada isinya, berarti pemisah statement hilang — laporkan
+        # dengan jelas supaya kode tidak hilang tanpa jejak.
+        rest = stmt[end + 1:].strip()
+        if rest.endswith(';'):
+            rest = rest[:-1].strip()
+        if rest:
+            raise exceptions.JPXSyntaxError(
+                f"Unexpected text after global declaration: {rest!r} "
+                f"(statements must end with ';')"
+            )
+
+        inner = stmt[start:end].strip()
         if inner.endswith(';'):
             inner = inner[:-1].strip()
-        
-        parts = inner.split('=', 1)
-        if len(parts) != 2:
-            raise exceptions.JPXSyntaxError("Invalid assignment in global")
-        
-        var_name = parts[0].strip()
-        value = self.eval_handler.eval_expression(parts[1].strip())
+        if not inner:
+            raise exceptions.JPXSyntaxError("Empty global declaration")
+
+        # Split per-pair di top-level.
+        pairs = self.eval_handler._split_top_commas(inner)
 
         # Catatan: sebelumnya ada blok "Type conversion" yang mengubah
         # string digit menjadi int/float otomatis (mis. "123" -> 123).
@@ -651,17 +725,46 @@ class JPXInterpreter:
         # - `counter` (global) dibaca dari global_env (current value)
         # - `arr` (parameter, local-only) tetap terlihat
         old_env = self.env
+        # Parameter function yang sedang jalan HARUS menang atas global
+        # dengan nama sama. Tanpa ini, stdlib seperti array.sum(arr) rusak
+        # begitu user mendeklarasikan `global [arr = ...]` — parameter `arr`
+        # ketimpa oleh global dan loop-nya index keluar batas.
+        params = (self.param_scope_stack[-1]
+                  if self.param_scope_stack else frozenset())
         merged = dict(self.global_env)  # global first (current values)
         for k, v in self.env.items():
-            if k not in merged:  # only add local vars not in global
+            # Local baru ditambahkan; parameter selalu diutamakan.
+            if k not in merged or k in params:
                 merged[k] = v
         self.env = merged
-        value = self.eval_handler.eval_expression(parts[1].strip())
-        self.env = old_env
+        try:
+            for pair in pairs:
+                pair = pair.strip()
+                if not pair:
+                    continue
+                # Pakai finder yang sadar comparison (==, !=, <=, +=) agar
+                # `global [a == 1]` tidak dianggap assignment.
+                eq_pos = self.eval_handler._find_assignment_eq(pair)
+                if eq_pos <= 0:
+                    raise exceptions.JPXSyntaxError(
+                        f"Invalid assignment in global: {pair!r}"
+                    )
+                var_name = pair[:eq_pos].strip()
+                if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', var_name):
+                    raise exceptions.JPXSyntaxError(
+                        f"Invalid global variable name: {var_name!r}"
+                    )
+                value = self.eval_handler.eval_expression(pair[eq_pos + 1:].strip())
 
-        # Write ke global env (persistent) dan local env (untuk reads berikutnya)
-        self.global_env[var_name] = value
-        old_env[var_name] = value
+                # Write ke global env (persistent), ke merged (agar pair
+                # berikutnya bisa membacanya) dan ke local env (read berikutnya)
+                self.global_env[var_name] = value
+                merged[var_name] = value
+                old_env[var_name] = value
+        finally:
+            # Selalu restore — kalau ada error, env tidak boleh nyangkut
+            # di merged copy.
+            self.env = old_env
 
     def get_value(self, ident):
         """Get value from identifier"""

@@ -49,6 +49,10 @@ class JPXFunction:
                     new_env[param] = None
             self.interpreter.env = new_env
 
+            # Catat parameter function ini agar handle_global tahu key mana
+            # yang berasal dari parameter (harus menang atas global).
+            self.interpreter.param_scope_stack.append(set(self.params))
+
             # Reset return value
             self.interpreter.return_value = None
 
@@ -63,6 +67,8 @@ class JPXFunction:
             return e.value
         finally:
             # Restore environment
+            if self.interpreter.param_scope_stack:
+                self.interpreter.param_scope_stack.pop()
             self.interpreter.env = old_env
             self.interpreter.return_value = old_return
     
