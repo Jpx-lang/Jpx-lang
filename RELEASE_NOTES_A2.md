@@ -189,7 +189,8 @@ print string.isAlpha("B");   # A1: Invalid global statement → now True
 A1.0 shipped only `interpreter/`, `library/`, `jpx.py`, `JpXkg.py` and
 `LICENSE.txt` (34 files). A2 is a full project (116 files):
 
-- **`tests/`** — 8 `.jpx` + 4 `.py` test files, **~194 assertions**
+- **`tests/`** — 8 `.jpx` + 2 `.py` test files (plus 2 runners),
+  **~194 assertions**
 - **`run_tests.py`** — main runner (currently **10/10** passing)
 - **`run_e2e.py`**, **`tests/run_bootstrap_tests.py`**
 - **`docs/syntax.md`**, **`docs/structure.md`** — language reference
@@ -210,9 +211,15 @@ A1.0 shipped only `interpreter/`, `library/`, `jpx.py`, `JpXkg.py` and
 | Suite | Result |
 |---|---|
 | `tests/run_tests.py` | **10/10** test files passed |
-| `run_tests.py` (root) | 25/26 (1 pre-existing failure, unrelated) |
+| `run_tests.py` (root) | **26/26** |
 | `run_e2e.py` | PASS |
 | `tests/run_bootstrap_tests.py` | 2/4 (pre-existing, experimental `--jpx-interpreter`) |
+
+Obsolete test files were removed in this release: `tests/bootstrap/` was a
+byte-identical copy of `bootstrap/` (the directory the runner actually
+uses), and `test_comprehensive.jpx` / `test_trycatch.jpx` are regenerated
+by `run_e2e.py` on every run, so they are now gitignored instead of
+tracked.
 
 Both binaries were smoke-tested after building: `--version`, `switch`,
 arithmetic, and `[jpx.string]` stdlib imports all behave identically on
