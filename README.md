@@ -1,187 +1,166 @@
+
 # JPX
-<img width="1024" height="1024" alt="1000227244" src="https://github.com/user-attachments/assets/3e61732d-77e6-4a47-8195-5b7350946df3" />
 
+<p align="center">
+  <img width="1024" height="1024" alt="JPX logo" src="https://github.com/user-attachments/assets/3e61732d-77e6-4a47-8195-5b7350946df3" />
+</p>
 
-JPX adalah bahasa scripting sederhana yang dirancang untuk eksperimen, automasi ringan, dan eksplorasi konsep runtime yang minimalis. Fokus utamanya adalah sintaks yang mudah dibaca serta eksekusi yang cepat tanpa kompleksitas berlebihan.
+<p align="center">
+  <b>A minimalist scripting language built for experimentation and lightweight automation.</b>
+</p>
 
----
-
-# ✨ Features
-
-- Sintaks sederhana dan mudah dipahami
-- Deklarasi variabel global yang jelas
-- Interpolasi variabel langsung dalam string
-- Ringan dan minimal dependency
-- Cocok untuk eksperimen scripting
-
----
-
-# 📦 Installation
-
-Unduh binary JPX dari halaman release.
-
-```
-jpx <file.jpx>
-```
-
-Pastikan binary berada di PATH atau jalankan langsung dari direktori file.
+<p align="center">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg" />
+  <img alt="Status" src="https://img.shields.io/badge/status-active-brightgreen.svg" />
+  <img alt="Version" src="https://img.shields.io/badge/version-A2-orange.svg" />
+</p>
 
 ---
 
-# 📜 Syntax Overview
+## 📖 Overview
 
-JPX memiliki sintaks yang sederhana dan langsung.
+**JPX** is a simple scripting language designed for experimentation, lightweight automation, and exploring minimalist runtime concepts. Its core focus is a **readable syntax** and **fast execution** — without unnecessary complexity.
 
-## Global Variable
+Whether you are learning how interpreters work, prototyping small logic, or building quick automation scripts, JPX provides a small and approachable surface to work with.
 
-Deklarasi variabel global menggunakan keyword `Global`.
+---
 
+## ✨ Features
+
+- **Simple, readable syntax** — easy to learn and understand
+- **Explicit global variable declaration** using the `Global` keyword
+- **Native string interpolation** with the `$` operator
+- **Lightweight** — minimal dependencies and fast startup
+- **Well-suited for scripting experiments** and quick prototyping
+
+---
+
+## 📦 Installation
+
+### Option 1 — Download the Release Binary
+
+Download the latest binary from the official release page:
+
+👉 [**JPX Releases — A2**](https://github.com/Jpx-lang/Jpx-lang/releases/tag/A2)
+
+After downloading, make the binary executable and ensure it is available on your `PATH` (or run it directly from its directory):
+
+```bash
+./jpx <file.jpx>
+Option 2 — Install via Shogun
+JPX can also be installed using the Shogun package manager:
 ```
+```bash
+shogun install Jpx-cli
+```
+Once installed, the jpx command will be available globally on your system.
+
+Verify Installation
+```bash
+jpx --version
+```
+📜 Syntax Overview
+JPX keeps its syntax deliberately small and direct.
+
+Global Variables
+Global variables are declared using the Global keyword:
+
+```jpx
 Global [name = "john"];
 ```
+Once declared, a global variable is accessible from anywhere in the script.
 
-Variabel tersebut dapat dipanggil di bagian mana pun dalam script.
+Print Statement
+Use Print to produce output:
 
----
-
-## Print Statement
-
-Untuk menampilkan output gunakan `Print`.
-
-```
+```jpx
 Print "Hello World";
 ```
+Variable Interpolation
+JPX supports inline variable interpolation inside strings using the $ prefix:
 
----
-
-## Variable Interpolation
-
-JPX mendukung penggunaan variabel langsung di dalam string menggunakan `$`.
-
-```
+```jpx
 Global [name = "john"];
-
-Print "Name : $john";
 ```
-
+Print "Name : $john";
 Output:
 
-```
+```text
 Name : john
 ```
+📄 Example Script
+Create a file named example.jpx:
 
----
-
-# 📄 Example Script
-
-Contoh file `example.jpx`:
-
-```
+```jpx
 Global [name = "john"];
 
 Print "Name : $john";
 Print "Welcome to JPX";
 ```
+Run it:
 
-Jalankan:
-
-```
+```bash
 jpx example.jpx
 ```
-
 Output:
 
-```
+```text
 Name : john
 Welcome to JPX
 ```
+📚 Documentation
+Additional documentation is available through:
 
----
+The repository Wiki
 
-# 📂 Project Structure
+Tutorial articles
 
-struktur repo:
+Example scripts in the examples/ directory
 
-```
-JPX/
-│
-├── README.md
-├── LICENSE
-├── bin/
-│   └── jpx
-│
-└── examples/
-    └── hello.jpx
-```
+🧪 Use Cases
+JPX is a good fit for:
 
----
+Experimenting with scripting language design
 
-# 📚 Documentation
+Lightweight automation tasks
 
-Dokumentasi tambahan akan tersedia melalui:
+Learning how interpreters work
 
-- Wiki repository
-- Artikel tutorial
-- Contoh script
+Prototyping logic and ideas
 
----
+Small scripting utilities
 
-# 🧪 Use Cases
+🤝 Contributing
+Contributions are highly welcome. There are many ways to get involved:
 
-Beberapa penggunaan JPX:
+Add new example scripts
 
-- Eksperimen bahasa scripting
-- Automasi sederhana
-- Pembelajaran konsep interpreter
-- Prototyping logic
+Improve documentation
 
----
+Report bugs
 
-# 🤝 Contributing
+Suggest new features
 
-Kontribusi sangat terbuka.
+Submit pull requests
 
-Beberapa cara berkontribusi:
+Before contributing, please review the existing issues and follow the repository's contribution guidelines.
 
-- Menambahkan contoh script
-- Membuat dokumentasi
-- Melaporkan bug
-- Memberikan ide fitur baru
+🪪 License
+This project is released under the MIT License.
 
----
+You are free to use, modify, and distribute this software in accordance with the terms of the MIT License. See the LICENSE file for details.
 
-# 🪪 License
+JPX Package Downloads
 
-Proyek ini dirilis di bawah lisensi **MIT License**.
+👉 jpxkg.netlify.app
 
-Anda bebas menggunakan, memodifikasi, dan mendistribusikan sesuai dengan ketentuan lisensi MIT.
+📢 Community
+Follow JPX development through:
 
----
+This repository
 
-# 🚀 Roadmap
+The project Wiki
 
-Beberapa rencana pengembangan JPX:
+Community channels
 
-- Penambahan kontrol alur
-- Fungsi dasar
-- Modul system
-- Dokumentasi lebih lengkap
-- CLI tooling tambahan
-
----
-
-# download
-**Jpx package downloads**
-[jpxkg](https://jpxkg.netlify.app/)
-
-# 📢 Community
-
-Ikuti perkembangan JPX melalui:
-
-- Repository
-- Wiki
-- Channel komunitas
-
----
-
-JPX dibuat sebagai eksplorasi bahasa scripting yang sederhana dan fleksibel.
+<p align="center"> <i>JPX is built as an exploration of simple, flexible scripting language design.</i> </p> ```
