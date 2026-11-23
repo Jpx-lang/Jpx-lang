@@ -1,70 +1,37 @@
-# Dokumentasi JPX
+# JPX Documentation / Dokumentasi JPX
 
-Selamat datang di dokumentasi resmi bahasa pemrograman **JPX** versi **A2**.
+Official documentation of the **JPX** programming language, version **A2**.
+Dokumentasi resmi bahasa pemrograman **JPX** versi **A2**.
 
-JPX adalah bahasa skrip dinamis yang menggabungkan wajah beberapa bahasa populer:
-blok kurung kurawal dan titik koma (gaya C/JavaScript), kata kunci ringkas (gaya Python),
-interpolasi string `$var` (gaya PHP/bash), operator pipeline `|>` (gaya Elixir), dan
-`switch` tanpa fall-through (gaya Go). JPX dirancang untuk eksperimen, automasi ringan,
-dan eksplorasi konsep runtime yang minimalis.
-
-> **Catatan penting**: JPX **case-sensitive**. Semua keyword ditulis huruf kecil —
-> `print`, bukan `Print`; `global`, bukan `Global`.
+> **Important / Penting**: JPX is **case-sensitive** / JPX bersifat **case-sensitive**.
+> Keywords are lowercase — `print`, not `Print`; `global`, not `Global`.
 
 ---
 
-## Peta Dokumentasi
+## Choose a language / Pilih bahasa
 
-| Folder / Berkas | Isi |
-|---|---|
-| [`installation/`](installation/README.md) | Cara memasang JPX: via repository (release biner atau source), via `shogun install`, dan `choco install Jpx-cli` (coming soon) |
-| [`syntax/`](syntax/README.md) | Referensi sintaks lengkap, dipecah per topik: variabel, tipe data, print & interpolasi, operator, kontrol alur, fungsi, class, string, list & dict, modul, fungsi bawaan, dan batasan |
-| [`cli/`](cli/README.md) | Cara memakai CLI `jpx`: menjalankan skrip, opsi-opsi command line, variabel lingkungan, exit code, dan package manager `jpxkg` |
+| Edition / Edisi | Language / Bahasa | Entry point |
+|---|---|---|
+| 🇬🇧 English | English | [**docs/eng/README.md**](eng/README.md) |
+| 🇮🇩 Bahasa Indonesia | Indonesian | [**docs/id/README.md**](id/README.md) |
 
----
+Both editions have identical content and structure:
 
-## Mulai Cepat
-
-Setelah JPX terpasang (lihat [installation/README.md](installation/README.md)), buat
-berkas `halo.jpx`:
-
-```jpx
-global [nama = "Dunia"];
-print "Halo, $nama!";
-print "Sekarang: ${2025 + 1}";
-```
-
-Jalankan:
-
-```bash
-jpx halo.jpx
-```
-
-Output:
-
-```text
-Halo, Dunia!
-Sekarang: 2026
-```
+- `installation/` — how to install JPX: release binary, source, `shogun install`, `choco install Jpx-cli` (coming soon) / cara memasang JPX
+- `syntax/` — the complete A2 syntax reference, split per topic / referensi sintaks A2 lengkap per topik
+- `cli/` — the `jpx` CLI, environment variables, exit codes, and the `jpxkg` package manager / CLI `jpx` dan package manager `jpxkg`
 
 ---
 
-## Status Versi
+## Archive / Arsip
 
-Dokumentasi ini ditulis untuk **JPX A2** ("A exclusive version"). Seluruh contoh sintaks
-pada folder `syntax/` sudah dijalankan dan diverifikasi terhadap interpreter A2. Fitur
-yang **belum** didukung dikumpulkan jujur di [syntax/batasan.md](syntax/batasan.md) —
-baca dulu halaman itu supaya tidak menabrak batasan yang sudah diketahui.
-
-Dokumentasi lama (`docs.md` dan `installation.md` versi v1.0) sudah tidak mencerminkan
-sintaks A2 (masih memakai `Global`/`Print` berhuruf kapital) dan digantikan oleh dokumen
-di folder ini.
+- [`legacy/`](legacy/docs.md) — the old v1.0 documentation and installation guide (English), kept for historical reference. It does **not** reflect the A2 syntax. / dokumentasi lama v1.0 (Inggris), disimpan sebagai referensi sejarah dan **tidak** mencerminkan sintaks A2.
 
 ---
 
-## Tautan Resmi
+## Official Links / Tautan Resmi
 
 - Repository: <https://github.com/Jpx-lang/Jpx-lang>
-- Halaman rilis: <https://github.com/Jpx-lang/Jpx-lang/releases>
-- Situs proyek: <https://jpx-lang.netlify.app>
-- Halaman unduhan paket (jpxkg): <https://jpxkg.netlify.app/>
+- Releases page / Halaman rilis: <https://github.com/Jpx-lang/Jpx-lang/releases>
+- Project website / Situs proyek: <https://jpx-lang.netlify.app>
+- Package catalog (jpxkg) / Katalog paket: <https://jpxkg.netlify.app/>
