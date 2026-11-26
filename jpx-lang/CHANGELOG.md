@@ -1,5 +1,96 @@
 # JPX Changelog
 
+## A2 Fixed — 2026-11-26
+
+Delapan perbaikan + fitur baru di interpreter, semuanya diverifikasi
+dengan `tests/test_a2_fixes.py` (51 test) tanpa merusak suite lama
+(`run_tests.py` 26/26).
+
+### ✨ Fitur baru
+
+#### Argv forwarding
+`jpx script.jpx arg1 arg2 -o out` — semua argumen setelah nama file
+diteruskan ke script dan tersedia sebagai list `args`:
+
+```jpx
+if args[0] == "-o" {
+    output_dir = args[1];
+}
+```
+
+Dulu argparse menolak argumen ekstra (`unrecognized arguments`), sehingga
+wrapper bash terpaksa menjembatani lewat environment variable.
+
+#### Compound assignment
+`x += 1`, `arr[i] -= 2`, `d["k"] *= 3`, dst. — read-modify-write dengan
+semantik konsisten dengan operator biner (`+=` numeric concat / list
+concat / string concat). Dulu `x += 1` crash: `Invalid assignment
+target: 'x +'`.
+
+#### Operator `not in`
+Pelengkap `in`: `if "md5" not in pe { ... }`. Dulu `5 not in lst` crash:
+`Invalid expression: '5 not'`.
+
+#### sha256 di modul string
+`string.sha256(text)` dan `string.sha256_file(path)` (streaming 64KB,
+nol subprocess). `hash.sha256()` / `hash.hash_file()` tetap tersedia.
+
+#### Single-quoted string literal
+`'hello'` sekarang valid: escape diproses, `$interpolation` TIDAK jalan —
+aman untuk regex dan shell pattern yang mengandung `$`. Double-quoted
+tetap: escape + interpolasi.
+
+#### Streaming download binary-safe
+`requests.download()` di-rewrite: stream byte mentah per 64KB (dulu
+`res.body.encode('utf-8')` — body sudah di-decode sebagai teks, sehingga
+exe/zip/tar rusak permanen), tulis atomic via `<file>.part` +
+`os.replace()`, return dict superset `{success, filename, size, total,
+status_code, elapsed_ms}`. Terverifikasi sha256 identik dengan curl.
+`speedreq.download_to()` ditambahkan sebagai padanan silent (tanpa print
+progress). Progress UI cukup poll `fs.size(path)` — nol subprocess.
+
+#### Modul archive native
+`[archive]` — modul ekstraksi native untuk installer: zip, tar,
+tar.gz/tgz, tar.bz2/tbz2, tar.xz/txz, gz, bz2, dan tar.zst/zst (via
+binary `zstd` sistem bila tersedia). Zip-slip guard di setiap member
+(arsip jahat `../evil.txt` ditolak, tidak pernah ditulis). API:
+`archive.extract(path, dest)` → `{ok, format, files, error}`,
+`archive.members(path)`, `archive.format(path)`, `archive.supported(path)`.
+
+### 🐛 Bug fixed
+
+#### `and` / `or` di dalam string
+`if mode == "fast and loose" { }` dulu crash `Invalid expression: '"fast'`
+karena split logika tidak men-track string. Sekarang semua finder
+(`and`, `or`, `in`, `is`, comparison, `+`, `-`, `*`/`/`/`%`, ternary,
+parse_args, list/object literal) string-aware: dua jenis quote + escape.
+
+#### `\033` di-decode menjadi NUL + "33"
+Escape oktal 1-3 digit kini benar (`\033` → ESC), plus `\xHH` heksa dan
+`\a`, `\v`. Unknown escape tetap dipertahankan (backslash + char — aman
+untuk path Windows `C:\Users\nova`).
+
+#### `\$` tetap di-interpolate
+`"cost: \$name"` dulu di-unescape jadi `$name` LALU tetap di-interpolate
+(`<undefined:name>`). Sekarang `\$` dilindungi placeholder dan
+dipulihkan jadi `$` literal setelah interpolasi selesai.
+
+#### Comment stripper rusak oleh `"a\\"`
+Penanganan `#` di `run()` memakai `line[i-1] != '\\'` sehingga quote
+setelah backslash-ganda dianggap escaped — string dianggap tak pernah
+ditutup. Sekarang pakai flag escape yang benar.
+
+#### Bootstrap lexer escape
+`lexer.py` (foundation) diselaraskan: oktal, heksa, `\$`.
+
+### Verifikasi
+
+```
+tests/test_a2_fixes.py : 51/51 PASS (termasuk live download + sha256)
+run_tests.py           : 26/26 PASS (regresi)
+examples/              : demo_string, demo_lib, test_native_import OK
+```
+
 ## A2 — 2026-11-22
 
 ### 🐛 Bug Fixes
