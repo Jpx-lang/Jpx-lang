@@ -285,6 +285,64 @@ class SuperRequests:
         except Exception as e:
             return f"Download gagal: {e}"
     
+    def download_to(self, url, save_path, headers=None, timeout=None):
+        """Download file binary-safe, streaming, TANPA output ke terminal.
+
+        Return dict: {success, filename, size, total, elapsed_ms} atau
+        {success: False, error, status_code}.
+
+        Ini pasangan dari requests.download() untuk kebutuhan installer:
+        satu call native menggantikan pipeline `curl -L -o` + polling
+        `stat` per 120ms (dulu ~2 subprocess per tick, ribuan spawn per
+        install). Progress tetap bisa ditampilkan dengan mem-poll
+        fs.size(save_path) dari JPX — pure Python, nol subprocess.
+        """
+        start = time.time()
+        req_headers = {'User-Agent': self.user_agent}
+        if headers:
+            for k, v in headers.items():
+                req_headers[k] = v
+
+        tmp_path = str(save_path) + '.part'
+        try:
+            req = urllib.request.Request(url, headers=req_headers)
+            with urllib.request.urlopen(req,
+                                        timeout=timeout or self.timeout) as resp:
+                try:
+                    total = int(resp.headers.get('Content-Length') or 0)
+                except (ValueError, TypeError):
+                    total = 0
+                written = 0
+                with open(tmp_path, 'wb') as f:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        written += len(chunk)
+                os.replace(tmp_path, str(save_path))
+                return {
+                    'success': True,
+                    'filename': str(save_path),
+                    'size': written,
+                    'total': total,
+                    'elapsed_ms': int((time.time() - start) * 1000),
+                }
+        except urllib.error.HTTPError as e:
+            self._cleanup_partial(tmp_path)
+            return {'success': False, 'error': f"HTTP {e.code}", 'status_code': e.code}
+        except Exception as e:
+            self._cleanup_partial(tmp_path)
+            return {'success': False, 'error': str(e), 'status_code': 0}
+
+    def _cleanup_partial(self, tmp_path):
+        """Hapus file .part sisa download gagal."""
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+
     # ========== CACHE MANAGEMENT ==========
     
     def clear_cache(self):

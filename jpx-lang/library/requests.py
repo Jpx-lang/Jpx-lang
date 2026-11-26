@@ -208,28 +208,82 @@ class Requests:
             result[key] = value[0] if len(value) == 1 else value
         return result
     
-    # Download file
+    # Download file (binary-safe streaming)
     def download(self, url, filename, headers=None, timeout=None, verify=None):
+        """Download file dengan streaming chunk (binary-safe).
+
+        Dulu implementasinya `res.body.encode('utf-8')` — body sudah
+        terlebih dulu di-decode sebagai TEKS (errors='ignore'), sehingga
+        file binary (exe, zip, tar) rusak permanen. Sekarang stream byte
+        mentah ke disk per 64KB tanpa decode, plus:
+          - tulis ke `<filename>.part` lalu os.replace() (atomic — tidak
+            meninggalkan file setengah jadi bila download gagal)
+          - return dict superset: success, filename, size, total,
+            status_code, elapsed_ms
+        Progress UI tidak perlu subprocess lagi: cukup poll fs.size(path)
+        atau baca field total/size setelah selesai.
+        """
+        start_time = self._current_time_ms()
+        req_headers = self.default_headers.copy()
+        if headers:
+            for key, value in headers.items():
+                req_headers[key] = value
+
+        context = None
+        if verify is not None and not verify:
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+        tmp_path = str(filename) + '.part'
         try:
-            res = self.get(url, headers=headers, timeout=timeout, verify=verify)
-            if res.status_code == 200:
-                with open(filename, 'wb') as f:
-                    f.write(res.body.encode('utf-8'))
+            req = urllib.request.Request(url, headers=req_headers)
+            with urllib.request.urlopen(req, timeout=timeout or self.timeout,
+                                        context=context) as resp:
+                total = 0
+                try:
+                    total = int(resp.headers.get('Content-Length') or 0)
+                except (ValueError, TypeError):
+                    total = 0
+                written = 0
+                with open(tmp_path, 'wb') as f:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        written += len(chunk)
+                os.replace(tmp_path, str(filename))
                 return {
                     'success': True,
-                    'filename': filename,
-                    'size': os.path.getsize(filename) if os.path.exists(filename) else 0
+                    'filename': str(filename),
+                    'size': written,
+                    'total': total,
+                    'status_code': resp.status,
+                    'elapsed_ms': self._current_time_ms() - start_time,
                 }
-            else:
-                return {
-                    'success': False,
-                    'error': f"HTTP {res.status_code}"
-                }
-        except Exception as e:
+        except urllib.error.HTTPError as e:
+            self._cleanup_partial(tmp_path)
             return {
                 'success': False,
-                'error': str(e)
+                'error': f"HTTP {e.code}",
+                'status_code': e.code,
             }
+        except Exception as e:
+            self._cleanup_partial(tmp_path)
+            return {
+                'success': False,
+                'error': str(e),
+                'status_code': 0,
+            }
+
+    def _cleanup_partial(self, tmp_path):
+        """Hapus file .part sisa download gagal."""
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
     
     # Settings
     def set_default_header(self, key, value):
