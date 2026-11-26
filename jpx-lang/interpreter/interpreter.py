@@ -12,8 +12,14 @@ from . import exceptions
 class JPXInterpreter:
     """JPX Language Interpreter - Core execution engine"""
     
-    def __init__(self):
+    def __init__(self, script_args=None):
         self.env = {}
+        # Argumen CLI setelah nama script: `jpx app.jpx arg1 arg2 -o out`.
+        # Tersedia di script sebagai list `args` (args[0] = argumen pertama,
+        # path script TIDAK termasuk). Dulu argv tidak diteruskan sama
+        # sekali — argparse menolak argumen ekstra, sehingga wrapper bash
+        # terpaksa menjembatani lewat environment variable.
+        self.script_args = list(script_args) if script_args else []
         # Built-in functions and constants.
         # Sebelumnya hanya `true`/`false`/`null`. Sekarang tambah:
         #   int(x)        - convert to int
@@ -36,6 +42,8 @@ class JPXInterpreter:
             'ord': lambda s=0: ord(s[0]) if isinstance(s, str) and s else 0,
             'chr': lambda n=0: chr(int(n)),
             'type': lambda x=None: type(x).__name__,
+            # CLI args: jpx script.jpx a b c -> args = ['a', 'b', 'c']
+            'args': self.script_args,
         }
         self.import_handler = importer.ImportHandler(self)
         self.eval_handler = EvalHandler(self)
@@ -69,24 +77,35 @@ class JPXInterpreter:
             clean_line = []
             in_string = False
             quote_char = None
+            escape = False
             i = 0
             while i < len(line):
                 ch = line[i]
 
-                # Handle string literals
-                if ch in ('"', "'") and (i == 0 or line[i-1] != '\\'):
-                    if not in_string:
-                        in_string = True
-                        quote_char = ch
-                        clean_line.append(ch)
-                    elif in_string and ch == quote_char:
+                if in_string:
+                    clean_line.append(ch)
+                    if escape:
+                        # Karakter setelah backslash selalu bagian string,
+                        # termasuk quote: "a\"b#c" — # di dalam string.
+                        escape = False
+                    elif ch == chr(92):
+                        escape = True
+                    elif ch == quote_char:
                         in_string = False
                         quote_char = None
-                        clean_line.append(ch)
-                    else:
-                        clean_line.append(ch)
+                    i += 1
+                    continue
+
+                # Handle string literals (dua jenis quote).
+                # Dulu pakai `line[i-1] != '\\'` yang salah untuk "a\\\\" —
+                # backslash ganda membuat quote penutup dianggap escaped,
+                # sehingga string dianggap tidak pernah ditutup.
+                if ch in ('"', "'"):
+                    in_string = True
+                    quote_char = ch
+                    clean_line.append(ch)
                 # Handle comments — hanya `#`
-                elif ch == '#' and not in_string:
+                elif ch == '#':
                     break
                 else:
                     clean_line.append(ch)
