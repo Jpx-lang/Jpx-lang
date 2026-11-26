@@ -52,6 +52,7 @@ def show_help():
     print("\nExamples:")
     print("  jpx script.jpx")
     print("  jpx examples/hello.jpx")
+    print("  jpx script.jpx arg1 arg2 -o out   # args available as `args` list")
     print("\nEnvironment:")
     print("  JPX_PATH                      Additional library paths")
     print("\nMore info: https://github.com/alzzmetth/Jpx-lang")
@@ -86,7 +87,7 @@ def show_info():
             status = "✓" if os.path.exists(p) else "✗"
             print(f"  {status} {p}")
 
-def run_file(filename, use_jpx_interpreter=False):
+def run_file(filename, use_jpx_interpreter=False, script_args=None):
     """Jalankan file JPX.
 
     Jika use_jpx_interpreter=True, gunakan bootstrap lexer+parser+evaluator
@@ -94,6 +95,9 @@ def run_file(filename, use_jpx_interpreter=False):
     subset fitur untuk demo.
 
     Jika False (default), gunakan main interpreter (Python, full features).
+
+    script_args = argumen CLI setelah nama file, diteruskan ke interpreter
+    dan tersedia di script sebagai list `args`.
     """
     if not os.path.exists(filename):
         print(f"Error: File '{filename}' not found")
@@ -121,8 +125,8 @@ def run_file(filename, use_jpx_interpreter=False):
         # Import interpreter
         from interpreter.interpreter import JPXInterpreter
 
-        # Buat interpreter dan jalankan
-        interpreter = JPXInterpreter()
+        # Buat interpreter dan jalankan (dengan script args untuk argv)
+        interpreter = JPXInterpreter(script_args=script_args)
 
         # Set script_dir agar import bisa cari file .jpx/.py di direktori
         # yang sama dengan script utama (relative import).
@@ -254,6 +258,12 @@ def main():
     )
 
     parser.add_argument('file', nargs='?', help='JPX script file to run')
+    # Argumen setelah nama file DITERUSKAN ke script (tersedia sebagai
+    # list `args` di dalam JPX). REMAINDER menelan semua sisa argumen,
+    # termasuk yang diawali `-` (mis. `jpx app.jpx -o out`).
+    parser.add_argument('script_args', nargs=argparse.REMAINDER,
+                        help='Arguments forwarded to the script (available '
+                             'inside JPX as the `args` list)')
     parser.add_argument('-v', '--version', action='store_true', help='Show version')
     parser.add_argument('-h', '--help', action='store_true', help='Show help')
     parser.add_argument('--info', action='store_true', help='Show system information')
@@ -275,7 +285,8 @@ def main():
     elif args.list_modules:
         list_modules()
     elif args.file:
-        run_file(args.file, use_jpx_interpreter=args.jpx_interpreter)
+        run_file(args.file, use_jpx_interpreter=args.jpx_interpreter,
+                 script_args=args.script_args)
     else:
         # No arguments
         show_help()

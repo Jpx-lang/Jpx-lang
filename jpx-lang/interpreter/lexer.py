@@ -169,9 +169,31 @@ class Lexer:
             if ch == '\\':
                 self.advance()
                 esc = self.peek()
+                # Oktal: \0 sampai \777 (1-3 digit) — \033 => ESC, \0 => NUL
+                if esc in '01234567':
+                    digits = ''
+                    while not self.at_end() and len(digits) < 3 \
+                            and self.peek() in '01234567':
+                        digits += self.advance()
+                    chars.append(chr(int(digits, 8)))
+                    continue
+                # Heksadesimal: \xHH
+                if esc in 'xX':
+                    self.advance()
+                    hexd = ''
+                    while not self.at_end() and len(hexd) < 2 \
+                            and self.peek() in '0123456789abcdefABCDEF':
+                        hexd += self.advance()
+                    if hexd:
+                        chars.append(chr(int(hexd, 16)))
+                        continue
+                    chars.append(esc)
+                    self.advance()
+                    continue
                 mapping = {
                     'n': '\n', 't': '\t', 'r': '\r', '\\': '\\',
-                    '"': '"', "'": "'", '0': '\0', 'b': '\b', 'f': '\f',
+                    '"': '"', "'": "'", '$': '$', 'b': '\b', 'f': '\f',
+                    'a': '\a', 'v': '\v',
                 }
                 if esc in mapping:
                     chars.append(mapping[esc])
