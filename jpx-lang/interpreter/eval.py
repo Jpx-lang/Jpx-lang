@@ -15,56 +15,95 @@ class EvalHandler:
         self.cache = {}
 
     # ================== STRING INTERPOLATION ==================
-    def process_string(self, s):
-        """Handle escape sequences dan $variable interpolation di string literal.
+    def process_string(self, s, interpolate=True):
+        """Handle escape sequences dan $variable interpolation di string
+        literal.
 
-        Sebelumnya hanya handle $variable. Escape sequences seperti \\n, \\t,
-        \\", \\\\ tetap mentah di output. Sekarang kita unescape dulu, lalu
-        interpolate variable.
+        Tahapan:
+          1. Unescape: newline, tab, carriage-return, backslash, quote
+             tunggal/ganda, backspace, formfeed, bell, vertical-tab,
+             dollar-escape, oktal 1-3 digit (033 -> ESC, 0 -> NUL), dan
+             heksa xHH. Unknown escape dipertahankan (backslash + char,
+             aman untuk path Windows).
+          2. Interpolasi dolar-kurung dan dolar-var (hanya jika
+             interpolate=True).
+
+        Escape dolar dilindungi placeholder NUL sehingga TIDAK PERNAH
+        dianggap interpolasi (dulu dolar-dollar di-unescape jadi dolar
+        lalu tetap di-interpolate menjadi undefined-variable), lalu
+        dipulihkan menjadi dolar di akhir.
         """
-        # 1. Unescape: \\n -> \n, \\t -> \t, \\\\ -> \\, \\" -> ", \\' -> '
+        ESC_DOLLAR = chr(0)
+        BSLASH = chr(92)
         result = []
         i = 0
-        while i < len(s):
+        n = len(s)
+        while i < n:
             ch = s[i]
-            if ch == '\\' and i + 1 < len(s):
+            if ch == BSLASH and i + 1 < n:
                 nxt = s[i + 1]
-                if nxt == 'n':
-                    result.append('\n')
-                elif nxt == 't':
-                    result.append('\t')
-                elif nxt == 'r':
-                    result.append('\r')
-                elif nxt == '\\':
-                    result.append('\\')
-                elif nxt == '"':
-                    result.append('"')
-                elif nxt == "'":
-                    result.append("'")
-                elif nxt == '0':
-                    result.append('\0')
-                elif nxt == 'b':
-                    result.append('\b')
-                elif nxt == 'f':
-                    result.append('\f')
-                elif nxt == '$':
-                    # Escape $ agar tidak di-interpolate
-                    result.append('$')
-                else:
-                    # Unknown escape — keep as-is
-                    result.append('\\')
+                # Oktal: 0 sampai 777 (1-3 digit) - 033 => ESC, 0 => NUL.
+                # Dulu 033 salah decode menjadi NUL + "33".
+                if nxt in '01234567':
+                    j = i + 1
+                    digits = ''
+                    while j < n and len(digits) < 3 and s[j] in '01234567':
+                        digits += s[j]
+                        j += 1
+                    result.append(chr(int(digits, 8)))
+                    i = j
+                    continue
+                # Heksadesimal: xHH (contoh x1B => ESC)
+                if nxt in 'xX':
+                    j = i + 2
+                    hexd = ''
+                    while j < n and len(hexd) < 2 and \
+                            s[j] in '0123456789abcdefABCDEF':
+                        hexd += s[j]
+                        j += 1
+                    if hexd:
+                        result.append(chr(int(hexd, 16)))
+                        i = j
+                        continue
+                    # x tanpa digit valid - pertahankan apa adanya
+                    result.append(BSLASH)
                     result.append(nxt)
+                    i += 2
+                    continue
+                if nxt == '$':
+                    # Escape $: lindungi dari interpolasi (placeholder),
+                    # dipulihkan menjadi '$' di akhir proses.
+                    result.append(ESC_DOLLAR)
+                    i += 2
+                    continue
+                mapping = {
+                    'n': '\n', 't': '\t', 'r': '\r', BSLASH: BSLASH,
+                    '"': '"', "'": "'",
+                    'b': '\b', 'f': '\f', 'a': '\a', 'v': '\v',
+                }
+                if nxt in mapping:
+                    result.append(mapping[nxt])
+                    i += 2
+                    continue
+                # Unknown escape - keep as-is (backslash + char)
+                result.append(BSLASH)
+                result.append(nxt)
                 i += 2
                 continue
             result.append(ch)
             i += 1
         unescaped = ''.join(result)
 
+        # Single-quoted (interpolate=False): escape saja, TANPA $interpolasi.
+        # Aman untuk regex/shell pattern yang mengandung '$'.
+        if not interpolate:
+            return unescaped.replace(ESC_DOLLAR, '$')
+
         # 2. Interpolate ${expr} (expression) dan $variable
         # ${expr} = evaluasi expression apa pun (method call, arithmetic, dll)
         # $var = interpolasi variable sederhana (backward compat)
 
-        # Pertama: handle ${expr} — HANYA jika string mengandung ${
+        # Pertama: handle ${expr} - HANYA jika string mengandung ${
         # (optimasi: skip character-by-character scan untuk string biasa)
         if '${' in unescaped:
             result = []
@@ -109,13 +148,173 @@ class EvalHandler:
                 return f"<error:{e}>"
 
         pattern = r'\$([a-zA-Z_][a-zA-Z0-9_.]*)'
-        return re.sub(pattern, repl_var, interpolated)
+        return re.sub(pattern, repl_var, interpolated).replace(ESC_DOLLAR, '$')
 
     def is_identifier(self, s):
         """Check if string is a valid identifier"""
         if not s:
             return False
         return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', s))
+
+    # ================== STRING-AWARE SCANNERS ==================
+
+    def _find_keyword(self, expr, keyword):
+        """Cari kemunculan TOP-LEVEL dari keyword di expr (di luar string
+        literal dan di luar tanda kurung).
+
+        Dulu split and/or/in/is memakai substring-check + str.split TANPA
+        tracking string, sehingga perbandingan dengan string yang berisi
+        kata "and" bisa crash dengan Invalid expression.
+
+        Return index awal keyword atau -1 kalau tidak ketemu.
+        """
+        in_string = False
+        quote_ch = None
+        depth = 0
+        n = len(expr)
+        klen = len(keyword)
+        i = 0
+        while i < n:
+            ch = expr[i]
+            if in_string:
+                if ch == chr(92) and i + 1 < n:
+                    i += 2
+                    continue
+                if ch == quote_ch:
+                    in_string = False
+                    quote_ch = None
+                i += 1
+                continue
+            if ch == '"' or ch == "'":
+                in_string = True
+                quote_ch = ch
+                i += 1
+                continue
+            if ch in '([{':
+                depth += 1
+            elif ch in ')]}':
+                depth -= 1
+            elif depth == 0 and expr[i:i + klen] == keyword:
+                # Boundary SUDAH di-enforce oleh spasi yang termasuk dalam
+                # keyword (' and ', ' in ', dst) - identifier tidak bisa
+                # mengandung spasi, jadi "2 in lst" dan "x and y" match,
+                # sedangkan "bandana" tidak (tidak ada spasi di sekitar).
+                # CATATAN: jangan tambah cek alnum di sini - itu justru
+                # memblokir "2 in lst" karena char sebelum spasi memang
+                # bagian dari operand kiri.
+                return i
+            i += 1
+        return -1
+
+    def _quote_is_escaped(self, expr, pos):
+        """True jika quote di expr[pos] di-escape oleh jumlah backslash
+        ganjil (escaped quote), false untuk quote asli."""
+        bs = 0
+        j = pos - 1
+        while j >= 0 and expr[j] == chr(92):
+            bs += 1
+            j -= 1
+        return bs % 2 == 1
+
+    def _eval_membership(self, left_expr, right_expr):
+        """Evaluasi "left in right" / "left not in right".
+        Mendukung list (item), dict (key), dan string (substring)."""
+        left_val = self.eval_expression(left_expr)
+        right_val = self.eval_expression(right_expr)
+        if right_val is None:
+            return False
+        try:
+            return left_val in right_val
+        except TypeError:
+            return False
+
+    # Operator compound yang dikenali untuk assignment
+    COMPOUND_OPS = ('+=', '-=', '*=', '/=', '%=')
+
+    def _find_compound_op(self, expr):
+        """Cari operator compound assignment (+=, -=, *=, /=, %=) di
+        top-level, di luar string dan bracket. Return (pos, op) atau
+        (-1, None). Catatan: //= tidak didukung (bentrok integer division).
+        """
+        in_string = False
+        quote_ch = None
+        depth = 0
+        i = 0
+        n = len(expr)
+        while i < n:
+            ch = expr[i]
+            if in_string:
+                if ch == chr(92) and i + 1 < n:
+                    i += 2
+                    continue
+                if ch == quote_ch:
+                    in_string = False
+                    quote_ch = None
+                i += 1
+                continue
+            if ch == '"' or ch == "'":
+                in_string = True
+                quote_ch = ch
+                i += 1
+                continue
+            if ch in '([{':
+                depth += 1
+            elif ch in ')]}':
+                depth -= 1
+            elif depth == 0 and i + 1 < n and expr[i:i + 2] in self.COMPOUND_OPS:
+                return i, expr[i:i + 2]
+            i += 1
+        return -1, None
+
+    def _apply_compound(self, current, value, op):
+        """Terapkan compound op dengan semantik konsisten dengan operator
+        biner yang setara:
+          += : numeric+numeric -> numeric; list+list -> concat; sisanya
+               string concat (str(current) + str(value)).
+          -= *= /= %= : numeric saja (float, kecuali *= dan %= yang
+               mempertahankan int saat kedua operand int).
+        """
+        def is_num(v):
+            return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+        if op == '+=':
+            if is_num(current) and is_num(value):
+                return current + value
+            if isinstance(current, list) and isinstance(value, list):
+                return current + value
+            if current is None:
+                return value
+            if value is None:
+                return current
+            return str(current) + str(value)
+
+        if current is None:
+            current = 0
+        if value is None:
+            value = 0
+        try:
+            if op == '-=':
+                return float(current) - float(value)
+            if op == '*=':
+                if is_num(current) and is_num(value):
+                    return current * value
+                return float(current) * float(value)
+            if op == '/=':
+                if float(value) == 0:
+                    raise exceptions.JPXTypeError("Division by zero")
+                return float(current) / float(value)
+            if op == '%=':
+                if float(value) == 0:
+                    raise exceptions.JPXTypeError("Modulo by zero")
+                if isinstance(current, int) and isinstance(value, int):
+                    return current % value
+                return float(current) % float(value)
+        except (ValueError, TypeError):
+            raise exceptions.JPXTypeError(
+                f"Operator '{op}' requires numeric operands, got "
+                f"{type(current).__name__} and {type(value).__name__}"
+            )
+        raise exceptions.JPXSyntaxError(f"Unknown compound operator: {op}")
 
     # ================== STRING METHODS ==================
 
@@ -612,251 +811,275 @@ class EvalHandler:
 
     # ================== TERNARY OPERATOR ==================
     def _eval_ternary(self, expr):
-        """Evaluate ternary operator: condition ? true_val : false_val"""
-        # Find position of '?' not inside quotes or brackets
-        in_string = False
-        paren_depth = 0
-        bracket_depth = 0
-        brace_depth = 0
+        """Evaluate ternary operator: condition ? true_val : false_val.
+
+        String-aware (dua jenis quote + escape) agar tanda-tanda di dalam
+        string literal tidak dianggap delimiter. Dulu hanya double-quote
+        yang di-track tanpa escape handling.
+        """
         question_pos = -1
-        
-        for i, ch in enumerate(expr):
-            if ch == '"':
-                in_string = not in_string
-            elif not in_string:
-                if ch == '(':
-                    paren_depth += 1
-                elif ch == ')':
-                    paren_depth -= 1
-                elif ch == '[':
-                    bracket_depth += 1
-                elif ch == ']':
-                    bracket_depth -= 1
-                elif ch == '{':
-                    brace_depth += 1
-                elif ch == '}':
-                    brace_depth -= 1
-                elif ch == '?' and paren_depth == 0 and bracket_depth == 0 and brace_depth == 0:
-                    question_pos = i
-                    break
-        
+        in_string = False
+        quote_ch = None
+        depth = 0
+        i = 0
+        n = len(expr)
+        while i < n:
+            ch = expr[i]
+            if in_string:
+                if ch == chr(92) and i + 1 < n:
+                    i += 2
+                    continue
+                if ch == quote_ch:
+                    in_string = False
+                    quote_ch = None
+                i += 1
+                continue
+            if ch == '"' or ch == "'":
+                in_string = True
+                quote_ch = ch
+            elif ch in '([{':
+                depth += 1
+            elif ch in ')]}':
+                depth -= 1
+            elif ch == '?' and depth == 0:
+                question_pos = i
+                break
+            i += 1
+
         if question_pos == -1:
             return None
-        
+
         condition = expr[:question_pos].strip()
-        rest = expr[question_pos+1:].strip()
-        
+        rest = expr[question_pos + 1:].strip()
+
         # Find matching ':'
-        in_string = False
-        paren_depth = 0
-        bracket_depth = 0
-        brace_depth = 0
         colon_pos = -1
-        
-        for i, ch in enumerate(rest):
-            if ch == '"':
-                in_string = not in_string
-            elif not in_string:
-                if ch == '(':
-                    paren_depth += 1
-                elif ch == ')':
-                    paren_depth -= 1
-                elif ch == '[':
-                    bracket_depth += 1
-                elif ch == ']':
-                    bracket_depth -= 1
-                elif ch == '{':
-                    brace_depth += 1
-                elif ch == '}':
-                    brace_depth -= 1
-                elif ch == ':' and paren_depth == 0 and bracket_depth == 0 and brace_depth == 0:
-                    colon_pos = i
-                    break
-        
+        in_string = False
+        quote_ch = None
+        depth = 0
+        n = len(rest)
+        i = 0
+        while i < n:
+            ch = rest[i]
+            if in_string:
+                if ch == chr(92) and i + 1 < n:
+                    i += 2
+                    continue
+                if ch == quote_ch:
+                    in_string = False
+                    quote_ch = None
+                i += 1
+                continue
+            if ch == '"' or ch == "'":
+                in_string = True
+                quote_ch = ch
+            elif ch in '([{':
+                depth += 1
+            elif ch in ')]}':
+                depth -= 1
+            elif ch == ':' and depth == 0:
+                colon_pos = i
+                break
+            i += 1
+
         if colon_pos == -1:
-            raise exceptions.JPXSyntaxError(f"Invalid ternary: missing ':'")
-        
+            raise exceptions.JPXSyntaxError("Invalid ternary: missing ':'")
+
         true_val = rest[:colon_pos].strip()
-        false_val = rest[colon_pos+1:].strip()
-        
+        false_val = rest[colon_pos + 1:].strip()
+
         # Evaluate condition
         cond_result = self.eval_expression(condition)
-        
+
         if self.is_truthy(cond_result):
             return self.eval_expression(true_val)
-        else:
-            return self.eval_expression(false_val)
+        return self.eval_expression(false_val)
 
     # ================== ARGUMENT PARSING ==================
     def parse_args(self, args_str):
-        """Parse function arguments"""
+        """Parse function arguments.
+
+        String-aware: dua jenis quote + escape. Dulu hanya double-quote
+        yang di-track, sehingga koma di dalam single-quoted string
+        (mis. f('a,b')) salah di-split.
+        """
         if not args_str:
             return []
-        
+
         args = []
         current = []
         depth = 0
         in_string = False
+        quote_ch = None
         escape = False
-        
+
         i = 0
         while i < len(args_str):
             ch = args_str[i]
-            
+
             if in_string:
                 current.append(ch)
-                if ch == '"' and not escape:
+                if ch == quote_ch and not escape:
                     in_string = False
-                elif ch == '\\' and not escape:
+                    quote_ch = None
+                elif ch == chr(92) and not escape:
                     escape = True
                 else:
                     escape = False
                 i += 1
                 continue
-            
-            if ch == '"':
+
+            if ch == '"' or ch == "'":
                 in_string = True
+                quote_ch = ch
                 current.append(ch)
                 i += 1
                 continue
-            
+
             if ch in '([{':
                 depth += 1
                 current.append(ch)
                 i += 1
                 continue
-                
+
             if ch in ')]}':
                 depth -= 1
                 current.append(ch)
                 i += 1
                 continue
-            
-            if ch == ',' and depth == 0 and not in_string:
+
+            if ch == ',' and depth == 0:
                 arg = ''.join(current).strip()
                 if arg:
                     args.append(self.eval_expression(arg))
                 current = []
                 i += 1
                 continue
-            
+
             current.append(ch)
             i += 1
-        
+
         if current:
             arg = ''.join(current).strip()
             if arg:
                 args.append(self.eval_expression(arg))
-        
+
         return args
 
     # ================== LIST PARSING ==================
     def _parse_list(self, expr):
-        """Parse list literal [1, 2, 3]"""
+        """Parse list literal [1, 2, 3] (string-aware: dua jenis quote)"""
         inner = expr[1:-1].strip()
         if not inner:
             return []
-        
+
         items = []
         current = []
         depth = 0
         in_string = False
+        quote_ch = None
         escape = False
-        
+
         i = 0
         while i < len(inner):
             ch = inner[i]
-            
+
             if in_string:
                 current.append(ch)
-                if ch == '"' and not escape:
+                if ch == quote_ch and not escape:
                     in_string = False
-                elif ch == '\\' and not escape:
+                    quote_ch = None
+                elif ch == chr(92) and not escape:
                     escape = True
                 else:
                     escape = False
                 i += 1
                 continue
-            
-            if ch == '"':
+
+            if ch == '"' or ch == "'":
                 in_string = True
+                quote_ch = ch
                 current.append(ch)
                 i += 1
                 continue
-            
+
             if ch in '([{':
                 depth += 1
                 current.append(ch)
                 i += 1
                 continue
-                
+
             if ch in ')]}':
                 depth -= 1
                 current.append(ch)
                 i += 1
                 continue
-            
-            if ch == ',' and depth == 0 and not in_string:
+
+            if ch == ',' and depth == 0:
                 item = ''.join(current).strip()
                 if item:
                     items.append(self.eval_expression(item))
                 current = []
                 i += 1
                 continue
-            
+
             current.append(ch)
             i += 1
-        
+
         if current:
             item = ''.join(current).strip()
             if item:
                 items.append(self.eval_expression(item))
-        
+
         return items
 
     # ================== OBJECT PARSING ==================
     def _parse_object(self, expr):
-        """Parse object literal {key: value}"""
+        """Parse object literal {key: value} (string-aware: dua jenis
+        quote, termasuk single-quoted key)."""
         inner = expr[1:-1].strip()
         if not inner:
             return {}
-        
+
         obj = {}
         current_key = []
         current_val = []
         state = 'key'
         depth = 0
         in_string = False
+        quote_ch = None
         escape = False
-        
+
         i = 0
         while i < len(inner):
             ch = inner[i]
-            
+
             if in_string:
                 if state == 'key':
                     current_key.append(ch)
                 else:
                     current_val.append(ch)
-                    
-                if ch == '"' and not escape:
+
+                if ch == quote_ch and not escape:
                     in_string = False
-                elif ch == '\\' and not escape:
+                    quote_ch = None
+                elif ch == chr(92) and not escape:
                     escape = True
                 else:
                     escape = False
                 i += 1
                 continue
-            
-            if ch == '"':
+
+            if ch == '"' or ch == "'":
                 in_string = True
+                quote_ch = ch
                 if state == 'key':
                     current_key.append(ch)
                 else:
                     current_val.append(ch)
                 i += 1
                 continue
-            
+
             if ch in '([{':
                 depth += 1
                 if state == 'key':
@@ -865,7 +1088,7 @@ class EvalHandler:
                     current_val.append(ch)
                 i += 1
                 continue
-                
+
             if ch in ')]}':
                 depth -= 1
                 if state == 'key':
@@ -874,17 +1097,19 @@ class EvalHandler:
                     current_val.append(ch)
                 i += 1
                 continue
-            
-            if ch == ':' and depth == 0 and not in_string and state == 'key':
+
+            if ch == ':' and depth == 0 and state == 'key':
                 state = 'val'
                 i += 1
                 continue
-            
-            if ch == ',' and depth == 0 and not in_string and state == 'val':
+
+            if ch == ',' and depth == 0 and state == 'val':
                 key = ''.join(current_key).strip()
                 val = ''.join(current_val).strip()
                 if key:
                     if key.startswith('"') and key.endswith('"'):
+                        key = key[1:-1]
+                    if key.startswith("'") and key.endswith("'"):
                         key = key[1:-1]
                     if val:
                         obj[key] = self.eval_expression(val)
@@ -895,24 +1120,26 @@ class EvalHandler:
                 state = 'key'
                 i += 1
                 continue
-            
+
             if state == 'key':
                 current_key.append(ch)
             else:
                 current_val.append(ch)
             i += 1
-        
+
         if current_key:
             key = ''.join(current_key).strip()
             val = ''.join(current_val).strip()
             if key:
                 if key.startswith('"') and key.endswith('"'):
                     key = key[1:-1]
+                if key.startswith("'") and key.endswith("'"):
+                    key = key[1:-1]
                 if val:
                     obj[key] = self.eval_expression(val)
                 else:
                     obj[key] = None
-        
+
         return obj
 
     # ================== OPERATOR FINDER ==================
@@ -1080,25 +1307,30 @@ class EvalHandler:
                 return result
 
         # String literal: hanya jika expr adalah SATU string literal utuh,
-        # bukan rangkaian seperti `"a" + "b"` (yang juga mulai dan berakhir
-        # dengan `"`). Sebelumnya check hanya `startswith('"') and endswith('"')`
-        # sehingga `"a" + "b"` salah dianggap satu string berisi `a" + "b`.
-        if expr.startswith('"') and expr.endswith('"') and len(expr) >= 2:
+        # bukan rangkaian seperti "a" + "b" (yang juga mulai dan berakhir
+        # dengan quote). Sekarang mendukung single-quote juga:
+        #   double-quoted = escape + $interpolation
+        #   single-quoted = escape saja, tanpa interpolasi (aman untuk
+        #                   regex/shell pattern yang mengandung $)
+        # Dulu 'single quoted' -> Invalid expression.
+        if (expr[0] == '"' or expr[0] == "'") and \
+                expr[-1] == expr[0] and len(expr) >= 2:
             # Scan dari awal, lewati escape, dan cek apakah closing quote
             # pertama jatuh tepat di akhir expr.
+            q = expr[0]
             j = 1
             closed = False
             while j < len(expr):
-                if expr[j] == '\\' and j + 1 < len(expr):
+                if expr[j] == chr(92) and j + 1 < len(expr):
                     j += 2
                     continue
-                if expr[j] == '"':
+                if expr[j] == q:
                     if j == len(expr) - 1:
                         closed = True
                     break
                 j += 1
             if closed:
-                return self.process_string(expr[1:-1])
+                return self.process_string(expr[1:-1], interpolate=(q == '"'))
 
         if expr.startswith('"""') and expr.endswith('"""') and len(expr) >= 6:
             # Triple-quoted string — cek tidak ada `"""` lain di tengah.
@@ -1278,6 +1510,25 @@ class EvalHandler:
                     raise
                 except Exception as e:
                     raise exceptions.JPXTypeError(f"Error calling {func_path}: {str(e)}")
+
+        # Compound assignment: x += y, arr[i] -= y, d["k"] *= y, dst.
+        # Read-modify-write: target dibaca via eval_expression (mendukung
+        # IDENT / index / property), lalu ditulis balik via _assign_to.
+        # Dulu "x += 1" crash: Invalid assignment target: 'x +'.
+        if not expr.startswith(('if ', 'while ', 'for ', 'try ', 'function ')):
+            c_pos, c_op = self._find_compound_op(expr)
+            if c_pos > 0:
+                target = expr[:c_pos].strip()
+                rhs = expr[c_pos + 2:].strip()
+                if target and rhs:
+                    value = self.eval_expression(rhs)
+                    try:
+                        current = self.eval_expression(target)
+                    except exceptions.JPXError:
+                        current = None
+                    new_val = self._apply_compound(current, value, c_op)
+                    self._assign_to(target, new_val)
+                    return new_val
 
         # Assignment: deteksi `target = value`.
         # Target bisa:
@@ -1500,145 +1751,165 @@ class EvalHandler:
                 return len(val)
             raise exceptions.JPXTypeError(f"Cannot get length of {type(val).__name__}")
 
-        # Logical operators
-        if ' and ' in expr:
-            parts = expr.split(' and ')
-            for part in parts:
-                if not self.eval_expression(part.strip()):
-                    return False
-            return True
+        # Logical operators - string-aware via _find_keyword, sehingga
+        # and/or di dalam string literal tidak memicu split (dulu
+        # perbandingan dengan string berisi kata "and" bisa crash).
+        and_pos = self._find_keyword(expr, ' and ')
+        if and_pos != -1:
+            left = expr[:and_pos].strip()
+            right = expr[and_pos + 5:].strip()
+            if not self.eval_expression(left):
+                return False
+            return bool(self.eval_expression(right))
 
-        if ' or ' in expr:
-            parts = expr.split(' or ')
-            for part in parts:
-                if self.eval_expression(part.strip()):
-                    return True
-            return False
+        or_pos = self._find_keyword(expr, ' or ')
+        if or_pos != -1:
+            left = expr[:or_pos].strip()
+            right = expr[or_pos + 4:].strip()
+            if self.eval_expression(left):
+                return True
+            return bool(self.eval_expression(right))
 
         if expr.startswith('not '):
             return not self.eval_expression(expr[4:].strip())
 
-        # Membership operator: `in`
-        # Supports: x in list, key in dict, substr in str
-        # Cek SEBELUM comparison agar `in` tidak tertangkap comparison path.
-        # Track string dan depth agar `in` di dalam string/paren diabaikan.
-        if ' in ' in expr:
-            in_string = False
-            depth = 0
-            i = 0
-            while i < len(expr) - 3:
-                ch = expr[i]
-                if ch == '"':
-                    in_string = not in_string
-                elif not in_string:
-                    if ch in '([{':
-                        depth += 1
-                    elif ch in ')]}':
-                        depth -= 1
-                    elif depth == 0 and expr[i:i+4] == ' in ':
-                        left = expr[:i].strip()
-                        right = expr[i+4:].strip()
-                        left_val = self.eval_expression(left)
-                        right_val = self.eval_expression(right)
-                        try:
-                            if right_val is None:
-                                return False
-                            return left_val in right_val
-                        except TypeError:
-                            return False
-                i += 1
+        # Membership operator: in / not in
+        # Supports: x in list, key in dict, substr in str.
+        # Cek SEBELUM comparison agar in tidak tertangkap comparison path.
+        # _find_keyword = string + depth aware, jadi "in" di dalam string
+        # diabaikan. "not in" dicek duluan karena mengandung " in ".
+        notin_pos = self._find_keyword(expr, ' not in ')
+        if notin_pos != -1:
+            left = expr[:notin_pos].strip()
+            right = expr[notin_pos + 8:].strip()
+            return not self._eval_membership(left, right)
 
-        # Identity operator: `is`
+        in_pos = self._find_keyword(expr, ' in ')
+        if in_pos != -1:
+            left = expr[:in_pos].strip()
+            right = expr[in_pos + 4:].strip()
+            return self._eval_membership(left, right)
+
+        # Identity operator: is
         # Supports: x is null, x is true, x is y
-        if ' is ' in expr:
-            in_string = False
-            depth = 0
-            i = 0
-            while i < len(expr) - 3:
-                ch = expr[i]
-                if ch == '"':
-                    in_string = not in_string
-                elif not in_string:
-                    if ch in '([{':
-                        depth += 1
-                    elif ch in ')]}':
-                        depth -= 1
-                    elif depth == 0 and expr[i:i+4] == ' is ':
-                        left = expr[:i].strip()
-                        right = expr[i+4:].strip()
-                        left_val = self.eval_expression(left)
-                        right_val = self.eval_expression(right)
-                        # `is` = identity check (untuk null/None check)
-                        if right.strip() == 'null':
-                            return left_val is None
-                        return left_val is right_val
-                i += 1
+        is_pos = self._find_keyword(expr, ' is ')
+        if is_pos != -1:
+            left = expr[:is_pos].strip()
+            right = expr[is_pos + 4:].strip()
+            left_val = self.eval_expression(left)
+            right_val = self.eval_expression(right)
+            # is = identity check (untuk null/None check)
+            if right == 'null':
+                return left_val is None
+            return left_val is right_val
 
         # Comparison operators
-        # Track parenthesis depth agar operator di dalam (...) tidak di-split.
-        # Sebelumnya `"x: " + (5 == 5)` di-split di `==` yang ada di dalam
-        # paren → left=`"x: " + (5` right=`5)` → error.
+        # Track parenthesis depth + string literal (dua jenis quote + escape)
+        # agar operator di dalam (...) atau string tidak di-split.
+        # Dulu perbandingan di dalam paren salah di-split, dan
+        # single-quoted string tidak di-track sama sekali.
         for op in ['<=', '>=', '==', '!=', '<', '>']:
             if op not in expr:
                 continue
             in_string = False
+            quote_ch = None
             depth = 0
-            for i in range(len(expr) - len(op) + 1):
+            i = 0
+            n = len(expr)
+            matched = False
+            while i <= n - len(op):
                 ch = expr[i]
-                if ch == '"':
-                    in_string = not in_string
-                elif not in_string:
-                    if ch in '([{':
-                        depth += 1
-                    elif ch in ')]}':
-                        depth -= 1
-                    elif depth == 0 and expr[i:i+len(op)] == op:
-                        left = expr[:i].strip()
-                        right = expr[i+len(op):].strip()
-                        left_val = self.eval_expression(left)
-                        right_val = self.eval_expression(right)
+                if in_string:
+                    if ch == chr(92) and i + 1 < n:
+                        i += 2
+                        continue
+                    if ch == quote_ch:
+                        in_string = False
+                        quote_ch = None
+                    i += 1
+                    continue
+                if ch == '"' or ch == "'":
+                    in_string = True
+                    quote_ch = ch
+                    i += 1
+                    continue
+                if ch in '([{':
+                    depth += 1
+                elif ch in ')]}':
+                    depth -= 1
+                elif depth == 0 and expr[i:i + len(op)] == op:
+                    left = expr[:i].strip()
+                    right = expr[i + len(op):].strip()
+                    left_val = self.eval_expression(left)
+                    right_val = self.eval_expression(right)
 
-                        try:
-                            if op == '==': return left_val == right_val
-                            if op == '!=': return left_val != right_val
-                            if op == '<': return left_val < right_val
-                            if op == '>': return left_val > right_val
-                            if op == '<=': return left_val <= right_val
-                            if op == '>=': return left_val >= right_val
-                        except TypeError:
-                            raise exceptions.JPXTypeError(
-                                f"Cannot compare {type(left_val).__name__} and {type(right_val).__name__}"
-                            )
-                        break
+                    try:
+                        if op == '==': return left_val == right_val
+                        if op == '!=': return left_val != right_val
+                        if op == '<': return left_val < right_val
+                        if op == '>': return left_val > right_val
+                        if op == '<=': return left_val <= right_val
+                        if op == '>=': return left_val >= right_val
+                    except TypeError:
+                        raise exceptions.JPXTypeError(
+                            f"Cannot compare {type(left_val).__name__} and {type(right_val).__name__}"
+                        )
+                    matched = True
+                    break
+                i += 1
+            if matched:
+                break
 
         # Addition / String concatenation
-        # Sebelumnya blok ini selalu menggabungkan operand sebagai string,
-        # sehingga `3 + 4` menghasilkan "34" bukan 7. Sekarang kita evaluasi
-        # semua operand dulu, lalu pilih mode (numerik vs string) berdasarkan
-        # tipe operand.
+        # Split di top-level plus dengan string-aware scanning (dua jenis
+        # quote + escape). Dulu hanya double-quote di-track tanpa escape,
+        # dan single-quote tidak di-track sama sekali (mis. 'a+b' salah
+        # di-split). Semua operand dievaluasi dulu, lalu pilih mode
+        # (numerik vs string) berdasarkan tipe operand.
         if '+' in expr:
             parts = []
             current = []
             depth = 0
             in_string = False
-
-            for ch in expr:
-                if ch == '"':
-                    in_string = not in_string
+            quote_ch = None
+            i = 0
+            n = len(expr)
+            while i < n:
+                ch = expr[i]
+                if in_string:
                     current.append(ch)
-                elif in_string:
+                    if ch == chr(92) and i + 1 < n:
+                        current.append(expr[i + 1])
+                        i += 2
+                        continue
+                    if ch == quote_ch:
+                        in_string = False
+                        quote_ch = None
+                    i += 1
+                    continue
+                if ch == '"' or ch == "'":
+                    in_string = True
+                    quote_ch = ch
                     current.append(ch)
-                elif ch == '+' and depth == 0:
-                    parts.append(''.join(current).strip())
-                    current = []
-                elif ch in '([{':
+                    i += 1
+                    continue
+                if ch in '([{':
                     depth += 1
                     current.append(ch)
-                elif ch in ')]}':
+                    i += 1
+                    continue
+                if ch in ')]}':
                     depth -= 1
                     current.append(ch)
-                else:
-                    current.append(ch)
+                    i += 1
+                    continue
+                if ch == '+' and depth == 0:
+                    parts.append(''.join(current).strip())
+                    current = []
+                    i += 1
+                    continue
+                current.append(ch)
+                i += 1
 
             if current:
                 parts.append(''.join(current).strip())
@@ -1647,8 +1918,11 @@ class EvalHandler:
                 # Evaluasi semua operand sekali
                 values = []
                 for part in parts:
-                    if part.startswith('"') and part.endswith('"'):
+                    if len(part) >= 2 and part[0] == '"' and part[-1] == '"':
                         values.append(self.process_string(part[1:-1]))
+                    elif len(part) >= 2 and part[0] == "'" and part[-1] == "'":
+                        values.append(self.process_string(part[1:-1],
+                                                          interpolate=False))
                     else:
                         values.append(self.eval_expression(part))
 
@@ -1677,7 +1951,7 @@ class EvalHandler:
                     return total
 
                 # Mode string: minimal satu operand adalah str (atau ada bool,
-                # list, dict — kita konsolidasi ke str)
+                # list, dict - kita konsolidasi ke str)
                 result = ""
                 for v in values:
                     if v is None:
@@ -1686,15 +1960,17 @@ class EvalHandler:
                 return result
 
         # Subtraction
-        # Subtraction: track depth agar `-` di dalam (...) atau [...] tidak
-        # di-split. Sebelumnya `(arr[n / 2 - 1] + ...)` di-split di `-` yang
-        # ada di dalam `[...]`, menghasilkan left=`(arr[n / 2 ` → invalid.
+        # Track depth + string agar minus di dalam (...) / [...] / string
+        # tidak di-split. Backward scan: escaped quote di-skip lewat
+        # _quote_is_escaped. Dulu hanya double-quote di-track tanpa escape
+        # handling, dan single-quote tidak di-track.
         if '-' in expr and not expr.startswith('-'):
             in_string = False
             depth = 0
-            for i in range(len(expr)-1, -1, -1):
+            for i in range(len(expr) - 1, -1, -1):
                 ch = expr[i]
-                if ch == '"':
+                if (ch == '"' or ch == "'") and \
+                        not self._quote_is_escaped(expr, i):
                     in_string = not in_string
                 elif not in_string:
                     if ch in ')]}':
@@ -1704,7 +1980,7 @@ class EvalHandler:
                     elif ch == '-' and depth == 0:
                         if i == 0:
                             continue
-                        # Treat `-` as unary (skip) only if the previous
+                        # Treat as unary (skip) only if the previous
                         # non-space char is an operator/bracket.
                         prev = i - 1
                         while prev >= 0 and expr[prev] == ' ':
@@ -1713,7 +1989,7 @@ class EvalHandler:
                             continue
 
                         left = expr[:i].strip()
-                        right = expr[i+1:].strip()
+                        right = expr[i + 1:].strip()
 
                         if left and right:
                             left_val = self.eval_expression(left)
@@ -1728,26 +2004,29 @@ class EvalHandler:
 
         # Multiplication, Division, Integer Division & Modulo
         # Support: * / // %   (// = integer division, return int)
-        # Track parenthesis depth agar operator di dalam (...) tidak di-split.
-        # Scan dari kanan, cek `//` sebelum `/` agar tidak salah split.
+        # Track depth + string (dua jenis quote, escaped quote di-skip).
+        # Scan dari kanan, cek // sebelum / agar tidak salah split.
         if '*' in expr or '/' in expr or '%' in expr:
             in_string = False
             depth = 0
             i = len(expr) - 1
             while i >= 0:
                 ch = expr[i]
-                if ch == '"':
+                if (ch == '"' or ch == "'") and \
+                        not self._quote_is_escaped(expr, i):
                     in_string = not in_string
-                elif not in_string:
+                    i -= 1
+                    continue
+                if not in_string:
                     if ch in ')]}':
                         depth += 1
                     elif ch in '([{':
                         depth -= 1
                     elif depth == 0:
-                        # Cek `//` (2 char) lebih dulu
-                        if i > 0 and expr[i] == '/' and expr[i-1] == '/':
-                            left = expr[:i-1].strip()
-                            right = expr[i+1:].strip()
+                        # Cek // (2 char) lebih dulu
+                        if ch == '/' and i > 0 and expr[i - 1] == '/':
+                            left = expr[:i - 1].strip()
+                            right = expr[i + 1:].strip()
                             if left and right:
                                 left_val = self.eval_expression(left)
                                 right_val = self.eval_expression(right)
@@ -1761,11 +2040,9 @@ class EvalHandler:
                                 except (ValueError, TypeError):
                                     pass
                             break
-                            i -= 1
-                            continue
-                        if ch in '*/%' and not (ch == '/' and i > 0 and expr[i-1] == '/'):
+                        if ch in '*/%':
                             left = expr[:i].strip()
-                            right = expr[i+1:].strip()
+                            right = expr[i + 1:].strip()
                             if left and right:
                                 left_val = self.eval_expression(left)
                                 right_val = self.eval_expression(right)
