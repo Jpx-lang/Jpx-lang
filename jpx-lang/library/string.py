@@ -54,6 +54,26 @@ def md5(s):
     if s is None: return ""
     return hashlib.md5(str(s).encode()).hexdigest()
 
+def sha256(s):
+    """SHA-256 dari string (64 karakter hex)."""
+    if s is None: return ""
+    return hashlib.sha256(str(s).encode()).hexdigest()
+
+def sha256_file(path):
+    """SHA-256 dari file (streaming per 64KB — aman untuk file besar).
+
+    Menggantikan spawn subprocess `sha256sum` di installer: satu call
+    native, nol subprocess.
+    """
+    h = hashlib.sha256()
+    try:
+        with open(str(path), 'rb') as f:
+            for chunk in iter(lambda: f.read(65536), b''):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return ""
+
 def random(length=8):
     try:
         chars = py_string.ascii_letters + py_string.digits
@@ -112,6 +132,8 @@ class String:
         
         # Hashing & Encoding
         self.md5 = md5
+        self.sha256 = sha256
+        self.sha256_file = sha256_file
         self.base64_encode = base64_encode
         self.base64_decode = base64_decode
         self.random = random
